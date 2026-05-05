@@ -165,13 +165,21 @@ async def admin_dashboard(
 
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # আজকের সফল ইভেন্ট
+    # আজকের সফল ইভেন্ট (Global)
     success_r = await db.execute(
         select(sql_func.coalesce(sql_func.sum(EventLog.event_count), 0)).where(
             and_(EventLog.status == "success", EventLog.created_at >= today)
         )
     )
     events_today = success_r.scalar() or 0
+
+    # প্রতি ক্লায়েন্টের আজকের সফল ইভেন্ট
+    client_events_r = await db.execute(
+        select(EventLog.client_id, sql_func.coalesce(sql_func.sum(EventLog.event_count), 0))
+        .where(and_(EventLog.status == "success", EventLog.created_at >= today))
+        .group_by(EventLog.client_id)
+    )
+    client_events_map = {row[0]: row[1] for row in client_events_r}
 
     # আজকের ব্যর্থ
     fail_r = await db.execute(
@@ -259,10 +267,12 @@ async def admin_dashboard(
             safe_name = html.escape(c.name)
             safe_pixel = html.escape(c.pixel_id)
             safe_key = html.escape(c.api_key)
+            c_events = client_events_map.get(c.id, 0)
             rows += f"""
             <tr>
               <td><strong>{safe_name}</strong><br><span style="color:#555;font-size:11px">{safe_pixel}</span></td>
               <td>{status_badge}</td>
+              <td style="color:#00c853;font-weight:600;">{c_events:,}</td>
               <td class="api-key-cell" title="{safe_key}">{safe_key[:24]}...</td>
               <td>
                 <a href="/api/v1/admin/client/{c.id}/instructions" style="text-decoration:none">
@@ -279,7 +289,7 @@ async def admin_dashboard(
           <div class="card-title"><span class="icon">👥</span> ক্লায়েন্ট তালিকা</div>
           <table class="client-table">
             <thead><tr>
-              <th>Name / Pixel ID</th><th>Status</th>
+              <th>Name / Pixel ID</th><th>Status</th><th>Events Today</th>
               <th>API Key</th><th>Actions</th>
             </tr></thead>
             <tbody>{rows}</tbody>
