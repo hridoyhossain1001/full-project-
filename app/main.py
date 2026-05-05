@@ -28,6 +28,12 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     logger.info("✅ ডাটাবেস সংযোগ সফল।")
 
+    # 🔄 Start Retry Service in background (Web Process-এর ভেতরেই চলবে, আলাদা বাজেট লাগবে না)
+    import asyncio
+    from app.services.retry_service import retry_failed_events
+    asyncio.create_task(retry_failed_events())
+    logger.info("⚙️  Background Retry Service স্টার্ট হয়েছে (Web Process)।")
+
     yield
 
     # Shutdown — cleanup
