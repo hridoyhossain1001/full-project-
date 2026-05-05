@@ -587,19 +587,22 @@ Body (JSON):
 {{
   "data": [{{
     "event_name": "{{{{Event Name}}}}",
-    "event_time": {{{{Unix Timestamp}}}},
+    "event_time": "{{{{timestamp}}}}",
     "event_id": "{{{{Event ID}}}}",
+    "action_source": "website",
     "event_source_url": "{{{{Page URL}}}}",
     "user_data": {{
-      "client_ip_address": "{{{{IP Address}}}}",
+      "client_ip_address": "{{{{Client IP}}}}",
       "client_user_agent": "{{{{User Agent}}}}",
-      "fbc": "{{{{_fbc cookie}}}}",
-      "fbp": "{{{{_fbp cookie}}}}"
+      "fbp": "{{{{FBP Cookie}}}}",
+      "fbc": "{{{{FBC Cookie}}}}"
     }}
   }}]
 }}</div>
         <br>
         <p><strong style="color:#fff">Step 4:</strong> Trigger — <strong>All Events</strong> বা নির্দিষ্ট ইভেন্ট সেট করুন।</p>
+        <p style="font-size: 13px; margin-top: 10px; color: #888;">* <strong>event_id:</strong> Deduplication-এর জন্য এটি খুব জরুরি। প্রতিটি ইভেন্টে ইউনিক event_id পাঠাবেন।<br>
+        * <strong>Custom Domain:</strong> যদি আপনার কোনো Custom Domain থাকে, তাহলে উপরের URL-এর বদলে আপনার ডোমেইন ব্যবহার করতে পারেন (e.g. https://capi.yourdomain.com/api/v1/events)।</p>
       </div>
     </div>
 
@@ -643,16 +646,22 @@ function send_capi_pageview_event() {{
         'method'      =&gt; 'POST',
         'timeout'     =&gt; 15,
         'redirection' =&gt; 5,
-        'blocking'    =&gt; false, // Non-blocking request for speed
+        'blocking'    =&gt; false, // Non-blocking request for speed (prevents site slow down)
         'headers'     =&gt; [
             'Content-Type' =&gt; 'application/json',
             'X-API-Key'    =&gt; $api_key
         ],
         'body'        =&gt; $body
     ]);
+    
+    // Optional: Error handling (Only useful if blocking =&gt; true)
+    // if (is_wp_error($response)) {{ error_log($response-&gt;get_error_message()); }}
 }}
+
+// WooCommerce Purchase Event Example:
+// add_action('woocommerce_thankyou', 'send_capi_purchase_event');
 ?&gt;</div>
-        <p style="font-size: 13px; margin-top: 10px; color: #888;">* <strong>blocking => false</strong> দেওয়া হয়েছে যাতে ওয়েবসাইট স্লো না হয়। WooCommerce Purchase-এর জন্য Action Hook (যেমন: <code>woocommerce_thankyou</code>) ব্যবহার করে Data Layer অনুযায়ী Event Name পরিবর্তন করে নিতে হবে।</p>
+        <p style="font-size: 13px; margin-top: 10px; color: #888;">* <strong>blocking => false</strong> দেওয়া হয়েছে যাতে ওয়েবসাইট কোনোভাবেই স্লো না হয়। WooCommerce Purchase-এর জন্য Action Hook (যেমন: <code>woocommerce_thankyou</code>) ব্যবহার করে Data Layer অনুযায়ী Event Name ও Custom Data পরিবর্তন করে নিতে হবে।</p>
       </div>
     </div>
 
@@ -681,17 +690,19 @@ function send_capi_pageview_event() {{
       }}
     }}]
   }}'</div>
-        <p style="font-size: 13px; margin-top: 10px; color: #888;">* ইউজার ডেটা (যেমন ইমেইল বা ফোন নম্বর) পাঠালে অবশ্যই <strong>SHA-256 Hash</strong> করে পাঠাতে হবে। IP এবং User Agent হ্যাশ করার দরকার নেই।</p>
+        <p style="font-size: 13px; margin-top: 10px; color: #888;">* <strong>API Key Security:</strong> API Key কখনো Client-side (Browser/JS) এ হার্ডকোড করবেন না। সবসময় Backend Environment Variable (e.g. <code>.env</code>) থেকে লোড করবেন।<br>
+        * ইউজার ডেটা (যেমন ইমেইল বা ফোন নম্বর) পাঠালে অবশ্যই <strong>SHA-256 Hash</strong> করে পাঠাতে হবে। IP এবং User Agent হ্যাশ করার দরকার নেই।</p>
       </div>
     </div>
 
     <div class="card">
       <div class="card-title"><span class="icon">📌</span> Important Notes</div>
       <ul style="color:#aaa;font-size:13px;line-height:2;padding-left:20px">
-        <li>প্রতিটি ইভেন্টে <strong style="color:#fff">event_id</strong> পাঠানো খুবই জরুরি (Facebook Deduplication-এর জন্য)।</li>
+        <li>প্রতিটি ইভেন্টে ইউনিক <strong style="color:#fff">event_id</strong> ব্যবহার করুন (যেমন: <code>order_id + timestamp</code>)। এটি Deduplication-এর জন্য খুবই জরুরি।</li>
         <li>Browser Pixel এবং Server Pixel — দুটোই চালু রাখুন, এবং উভয় জায়গা থেকে <strong>একই event_id</strong> পাঠাবেন।</li>
         <li><code>_fbc</code> এবং <code>_fbp</code> কুকি পাঠালে ইভেন্ট ম্যাচ রেট (Match Rate) অনেক বাড়ে।</li>
-        <li>Facebook Events Manager-এ গিয়ে <strong>Test Events</strong> ট্যাবে চেক করুন সবকিছু ঠিকমতো কাজ করছে কিনা।</li>
+        <li>API Key কখনো Client-side (Browser) এ রাখবেন না। এটি শুধুমাত্র সার্ভার থেকে ব্যবহারযোগ্য।</li>
+        <li>লাইভ যাওয়ার আগে Facebook Events Manager-এর <strong>Test Event Code</strong> ব্যবহার করে প্রথমে টেস্ট করে নিন।</li>
       </ul>
     </div>
 
