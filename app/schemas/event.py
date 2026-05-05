@@ -47,5 +47,5 @@ class EventsPayload(BaseModel):
 
 class EventsResponse(BaseModel):
     status: str
-    events_sent: int
+    events_received: int
     message: str
