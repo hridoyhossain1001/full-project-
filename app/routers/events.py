@@ -11,7 +11,6 @@ from app.services.capi_service import send_to_facebook
 from app.models.client import Client
 from app.models.event_log import EventLog
 from app.database import get_db
-from app.limiter import limiter
 from app.services.retry_service import save_failed_event
 
 logger = logging.getLogger(__name__)
@@ -23,7 +22,6 @@ router = APIRouter()
     response_model=EventsResponse,
     summary="Facebook CAPI Events Endpoint",
 )
-@limiter.limit("5000/minute", key_func=lambda r: r.headers.get("X-API-Key") or "unknown")
 async def receive_events(
     request: Request,
     payload: EventsPayload,
@@ -39,6 +37,24 @@ async def receive_events(
         raise HTTPException(status_code=400, detail="ইভেন্ট ডাটা খালি!")
 
     client_ip = request.client.host if request.client else None
+
+    # ─── Per-Client Rate Limit Check ─────────────────────────────────────
+    rate_limit = client.rate_limit or 5000  # default 5000/min
+    one_min_ago = datetime.now(timezone.utc) - timedelta(minutes=1)
+    recent_result = await db.execute(
+        select(sql_func.coalesce(sql_func.sum(EventLog.event_count), 0)).where(
+            and_(
+                EventLog.client_id == client.id,
+                EventLog.created_at >= one_min_ago,
+            )
+        )
+    )
+    recent_count = recent_result.scalar() or 0
+    if recent_count + len(payload.data) > rate_limit:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded! {recent_count}/{rate_limit} events/min"
+        )
 
     # ─── Daily Quota Check: আজকে কতগুলো ইভেন্ট পাঠানো হয়েছে ──────────
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -60,19 +76,18 @@ async def receive_events(
         )
 
     # ─── Deduplication: event_id চেক করে duplicate বাদ দাও ─────────────
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     unique_events = []
     for event in payload.data:
         if event.event_id:
-            # এই event_id আগে process হয়েছে কিনা চেক করো (last 24h)
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+            # EventLog.event_id column-এ exact match (indexed, fast)
             existing = await db.execute(
                 select(EventLog.id).where(
                     and_(
                         EventLog.client_id == client.id,
-                        EventLog.event_name.contains(event.event_name),
+                        EventLog.event_id == event.event_id,
                         EventLog.status == "success",
                         EventLog.created_at >= cutoff,
-                        EventLog.fb_response.contains(event.event_id) if event.event_id else True,
                     )
                 ).limit(1)
             )
@@ -94,16 +109,18 @@ async def receive_events(
         # CAPI সার্ভিসে ডাটা পাঠানো
         result = await send_to_facebook(client, unique_events)
 
-        # ✅ সফল হলে লগ করো
-        log_entry = EventLog(
-            client_id=client.id,
-            event_name=event_names,
-            event_count=len(unique_events),
-            status="success",
-            fb_response=json.dumps(result) if result else None,
-            ip_address=client_ip,
-        )
-        db.add(log_entry)
+        # ✅ সফল হলে প্রতিটি event আলাদাভাবে লগ করো (dedup-এর জন্য event_id store)
+        for ev in unique_events:
+            log_entry = EventLog(
+                client_id=client.id,
+                event_name=ev.event_name,
+                event_id=ev.event_id,
+                event_count=1,
+                status="success",
+                fb_response=json.dumps(result) if result else None,
+                ip_address=client_ip,
+            )
+            db.add(log_entry)
         await db.commit()
 
         return EventsResponse(

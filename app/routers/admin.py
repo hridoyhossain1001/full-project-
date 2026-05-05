@@ -104,7 +104,9 @@ STYLE = """
 def base_html(title: str, body: str, msg: str = "", msg_type: str = "success") -> str:
     alert_html = ""
     if msg:
-        alert_html = f'<div class="alert alert-{msg_type}">{msg}</div>'
+        safe_msg = html.escape(msg)
+        safe_type = html.escape(msg_type)
+        alert_html = f'<div class="alert alert-{safe_type}">{safe_msg}</div>'
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
