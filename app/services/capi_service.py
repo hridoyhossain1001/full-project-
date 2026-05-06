@@ -51,6 +51,8 @@ async def send_to_facebook(client, events: List[EventData]) -> dict:
 
     # ইভেন্ট ডাটা প্রস্তুত করা
     events_data = [event.model_dump(exclude_none=True) for event in events]
+    for e in events_data:
+        e.pop("emq_score", None)
 
     payload = {
         "data": events_data,

@@ -12,7 +12,8 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
+from user_agents import parse as parse_ua
 
 from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks, Query
 from fastapi.responses import Response, JSONResponse
@@ -125,6 +126,7 @@ async def _save_success_logs(client_id: int, events_data: list, fb_result: dict 
                     status="success",
                     fb_response=json.dumps(fb_result) if fb_result else None,
                     ip_address=client_ip,
+                    emq_score=event.get("emq_score"),
                 )
                 for event in events_data
             ]
@@ -237,12 +239,41 @@ async def collect_event(
                     if loc_data.get("zp") and not ud_raw.get("zp"):
                         ud_raw["zp"] = loc_data["zp"]
 
+            # ─── Event Match Quality (EMQ) ─────────────────────────────────
+            emq = 0.0
+            if ud_raw.get("em"): emq += 3.0
+            if ud_raw.get("ph"): emq += 3.0
+            if ud_raw.get("fbp") or ud_raw.get("fbc"): emq += 1.0
+            if ud_raw.get("client_ip_address") and ud_raw.get("client_user_agent"): emq += 1.0
+            other_pii = sum(1 for k in ["fn", "ln", "ct", "st", "zp", "country"] if ud_raw.get(k))
+            if other_pii >= 2: emq += 2.0
+            elif other_pii == 1: emq += 1.0
+            emq = min(10.0, emq)
+
             user_data = UserData(**ud_raw)
 
             # custom_data (optional)
-            custom_data = None
-            if raw.get("custom_data"):
-                custom_data = CustomData(**raw["custom_data"])
+            custom_data_dict = raw.get("custom_data", {})
+            if custom_data_dict is None:
+                custom_data_dict = {}
+
+            # ─── User-Agent Parsing ────────────────────────────────────────
+            if ud_raw.get("client_user_agent"):
+                ua = parse_ua(ud_raw["client_user_agent"])
+                custom_data_dict["device_type"] = "Mobile" if ua.is_mobile else "Tablet" if ua.is_tablet else "PC"
+                custom_data_dict["os_name"] = ua.os.family
+                custom_data_dict["browser_name"] = ua.browser.family
+
+            # ─── UTM Parameter Extraction ──────────────────────────────────
+            event_url = raw.get("event_source_url", "")
+            if event_url:
+                parsed_url = urlparse(event_url)
+                qs = parse_qs(parsed_url.query)
+                for utm_key in ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"]:
+                    if utm_key in qs:
+                        custom_data_dict[utm_key] = qs[utm_key][0]
+
+            custom_data = CustomData(**custom_data_dict)
 
             event = EventData(
                 event_name=raw.get("event_name", "PageView"),
@@ -252,6 +283,7 @@ async def collect_event(
                 action_source=raw.get("action_source", "website"),
                 user_data=user_data,
                 custom_data=custom_data,
+                emq_score=emq,
             )
             parsed_events.append(event)
         except Exception as e:

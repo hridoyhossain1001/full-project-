@@ -42,6 +42,11 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("ℹ️  Retry Service এই process-এ নিষ্ক্রিয় (ENABLE_RETRY_IN_WEB সেট নেই)।")
 
+    # 🧹 Auto-Cleanup Service
+    from app.services.cleanup_service import auto_cleanup_database
+    asyncio.create_task(auto_cleanup_database())
+    logger.info("🧹 Background Auto-Cleanup Service স্টার্ট হয়েছে (30 days retention)।")
+
     # 🌍 GeoIP Database Load
     from app.services.geoip_service import download_geoip_db_if_missing, close_geoip_db
     await download_geoip_db_if_missing()

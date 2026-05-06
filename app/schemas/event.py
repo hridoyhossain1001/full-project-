@@ -74,6 +74,7 @@ class UserData(BaseModel):
 
 class CustomData(BaseModel):
     """Purchase, AddToCart ইত্যাদির জন্য custom data"""
+    model_config = {"extra": "allow"}
     value: Optional[float] = None
     currency: Optional[str] = None
     content_ids: Optional[List[str]] = None
@@ -91,6 +92,7 @@ class EventData(BaseModel):
     event_source_url: Optional[str] = None
     user_data: UserData
     custom_data: Optional[CustomData] = None
+    emq_score: Optional[float] = None      # Event Match Quality Score (internal use)
 
 
 class EventsPayload(BaseModel):
