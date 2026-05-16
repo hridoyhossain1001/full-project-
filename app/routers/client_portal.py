@@ -871,7 +871,6 @@ function send_capi_event($event_name, $url, $value, $event_id, $product_id) {{
         showStatus('❌ Network error: ' + e.message, 'error');
       }}
     }}
-    }}
     </script>
 
     <script>
