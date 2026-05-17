@@ -341,26 +341,70 @@ async def client_dashboard(request: Request, db: AsyncSession = Depends(get_db))
     )
     recent_logs = logs_result.scalars().all()
 
-    log_rows_html = ""
+    # Dashboard Recent Events (last 15)
+    dashboard_logs_html = ""
+    for log in recent_logs[:15]:
+        time_str = log.created_at.strftime("%b %d, %H:%M:%S") if log.created_at else "—"
+        safe_event_name = html.escape(log.event_name or "unknown")
+        safe_event_id = html.escape(log.event_id or "—")
+        status_badge = (
+            '<span class="badge badge-success">✅ Success</span>'
+            if log.status == "success"
+            else '<span class="badge badge-error">❌ Failed</span>'
+        )
+        dashboard_logs_html += f"""
+        <tr>
+          <td style="color:var(--text-muted);font-size:12px">{time_str}</td>
+          <td><strong>{safe_event_name}</strong></td>
+          <td style="font-family:monospace;font-size:11px;color:var(--text-muted)">{safe_event_id}</td>
+          <td>{status_badge}</td>
+        </tr>"""
+
+    if not recent_logs:
+        dashboard_logs_html = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:30px">এখনো কোনো ইভেন্ট লগ নেই</td></tr>'
+
+    # Purchase Event Logs (Filter only Purchase)
+    purchase_logs_html = ""
+    for log in recent_logs:
+        if (log.event_name or "").lower() not in ["purchase", "order_completed"]:
+            continue
+        time_str = log.created_at.strftime("%b %d, %H:%M:%S") if log.created_at else "—"
+        safe_event_name = html.escape(log.event_name or "unknown")
+        safe_event_id = html.escape(log.event_id or "—")
+        status_badge = (
+            '<span class="badge badge-success">✅ Success</span>'
+            if log.status == "success"
+            else '<span class="badge badge-error">❌ Failed</span>'
+        )
+        purchase_logs_html += f"""
+        <tr>
+          <td style="color:var(--text-muted);font-size:12px">{time_str}</td>
+          <td><strong>{safe_event_name}</strong></td>
+          <td style="font-family:monospace;font-size:11px;color:var(--text-muted)">{safe_event_id}</td>
+          <td>{status_badge}</td>
+        </tr>"""
+
+    if not purchase_logs_html:
+        purchase_logs_html = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:30px">কোনো Purchase ইভেন্ট নেই</td></tr>'
+
+    # General Event Logs (All)
+    all_logs_html = ""
     for log in recent_logs:
         time_str = log.created_at.strftime("%b %d, %H:%M:%S") if log.created_at else "—"
         safe_event_name = html.escape(log.event_name or "unknown")
         safe_event_id = html.escape(log.event_id or "—")
         status_badge = (
-            '<span style="color:#00e676;font-weight:600">✅ Success</span>'
+            '<span class="badge badge-success">✅ Success</span>'
             if log.status == "success"
-            else '<span style="color:#ff5252;font-weight:600">❌ Failed</span>'
+            else '<span class="badge badge-error">❌ Failed</span>'
         )
-        log_rows_html += f"""
+        all_logs_html += f"""
         <tr>
-          <td style="color:#888;font-size:12px">{time_str}</td>
+          <td style="color:var(--text-muted);font-size:12px">{time_str}</td>
           <td><strong>{safe_event_name}</strong></td>
-          <td style="font-family:monospace;font-size:11px;color:#666">{safe_event_id}</td>
+          <td style="font-family:monospace;font-size:11px;color:var(--text-muted)">{safe_event_id}</td>
           <td>{status_badge}</td>
         </tr>"""
-
-    if not recent_logs:
-        log_rows_html = '<tr><td colspan="4" style="text-align:center;color:#555;padding:30px">এখনো কোনো ইভেন্ট লগ নেই</td></tr>'
 
     # ─── Pending Events Query (Deferred Purchase) ─────────────────────
     pending_html = ""
@@ -442,13 +486,14 @@ async def client_dashboard(request: Request, db: AsyncSession = Depends(get_db))
               <td style="color:var(--text-muted);font-size:12px">{html.escape(phone)}</td>
               <td style="color:var(--text-muted);font-size:12px">{age_str}</td>
               <td>
-                <button class="btn-sm btn-info" onclick="confirmOrder('{safe_oid}')">✅ Confirm</button>
-                <button class="btn-sm btn-danger" onclick="cancelOrder('{safe_oid}')">❌ Cancel</button>
+                <button class="btn-sm btn-info" onclick="confirmOrder('{safe_oid}')" >✅ Confirm</button>
+                
+                <button class="btn-sm btn-danger" onclick="cancelOrder('{safe_oid}')" >❌ Cancel</button>
               </td>
             </tr>"""
 
         if not pending_events:
-            pending_rows = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:30px">কোনো pending অর্ডার নেই 🎉</td></tr>'
+            pending_rows = '<tr><td colspan="6" style="text-align:center;color:#555;padding:30px">কোনো pending অর্ডার নেই 🎉</td></tr>'
 
         pending_html = f"""
     <!-- PENDING ORDERS SECTION -->
@@ -528,16 +573,16 @@ async def client_dashboard(request: Request, db: AsyncSession = Depends(get_db))
     </div>
 
     <div class="tabs">
-      <button class="tab-btn active" onclick="openInnerTab(event, 'tab-easy')">🚀 Easy Setup</button>
-      <button class="tab-btn" onclick="openInnerTab(event, 'tab-generator')">🛠️ Event Generator</button>
-      <button class="tab-btn" onclick="openInnerTab(event, 'tab-gtm')">⚙️ GTM Server</button>
-      <button class="tab-btn" onclick="openInnerTab(event, 'tab-wp')">📝 WordPress</button>
-      <button class="tab-btn" onclick="openInnerTab(event, 'tab-custom')">💻 Custom</button>
-      <button class="tab-btn" onclick="openInnerTab(event, 'tab-test')">🧪 Testing</button>
+      <button class="tab-btn active" onclick="openTab(event, 'tab-easy')">🚀 Easy Setup</button>
+      <button class="tab-btn" onclick="openTab(event, 'tab-generator')">🛠️ Event Generator</button>
+      <button class="tab-btn" onclick="openTab(event, 'tab-gtm')">⚙️ GTM Server</button>
+      <button class="tab-btn" onclick="openTab(event, 'tab-wp')">📝 WordPress</button>
+      <button class="tab-btn" onclick="openTab(event, 'tab-custom')">💻 Custom</button>
+      <button class="tab-btn" onclick="openTab(event, 'tab-test')">🧪 Testing</button>
     </div>
 
     <!-- GENERATOR TAB -->
-    <div id="tab-generator" class="inner-tab-content card" style="margin-bottom:20px">
+    <div id="tab-generator" class="tab-content card" style="margin-bottom:20px">
       <div class="card-title"><span class="icon">🛠️</span> Event Code Generator</div>
       
       <div style="margin-bottom:20px;padding:14px;background:rgba(255,82,82,0.1);border:1px solid rgba(255,82,82,0.3);border-radius:8px;font-size:13px;color:#ff5252;line-height:1.6">
@@ -579,7 +624,7 @@ async def client_dashboard(request: Request, db: AsyncSession = Depends(get_db))
     </div>
 
     <!-- EASY SETUP TAB (1-LINE TRACKER) -->
-    <div id="tab-easy" class="inner-tab-content active card" style="margin-bottom:20px">
+    <div id="tab-easy" class="tab-content active card" style="margin-bottom:20px">
       <div class="card-title"><span class="icon">🚀</span> Easy Setup — মাত্র ১ লাইন কোড! <span style="font-size:12px;color:#00e676;margin-left:8px;">✅ সবচেয়ে সহজ</span></div>
       <div style="color:#aaa;font-size:14px;line-height:1.8">
         <p style="color:#ccc;margin-bottom:12px;">আপনার ওয়েবসাইটের <code>&lt;head&gt;</code> বা <code>&lt;body&gt;</code>-র শেষে নিচের ১ লাইন কোড বসান। ব্যস, PageView অটো ট্র্যাক হবে!</p>
@@ -641,7 +686,7 @@ capi('setUser', {{
     </div>
 
     <!-- WORDPRESS TAB (AS EASY AS 5 YEARS OLD) -->
-    <div id="tab-wp" class="inner-tab-content card" style="margin-bottom:20px">
+    <div id="tab-wp" class="tab-content card" style="margin-bottom:20px">
       <div class="card-title"><span class="icon">📝</span> WordPress Setup (সবচেয়ে সহজ নিয়ম)</div>
       <div style="color:#aaa;font-size:14px;line-height:1.8">
         <p><strong style="color:#fff">ধাপ ১:</strong> আপনার WordPress ওয়েবসাইটে লগিন করুন।</p>
@@ -845,7 +890,8 @@ function send_capi_event($event_name, $url, $value, $event_id, $product_id) {{
 
     <!-- TAB: SETTINGS & SETUP -->
     <div id="tab-settings" class="tab-pane">
-        {instructions_html}
+        
+
         
         <div class="card" style="margin-bottom:24px;border:1px solid rgba(16,185,129,0.2);margin-top:24px;">
           <div class="card-title">🧪 Event Testing & Debug</div>
@@ -869,7 +915,7 @@ function send_capi_event($event_name, $url, $value, $event_id, $product_id) {{
 
             <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:20px;">
               <h4 style="color:#fff;margin:0 0 12px 0;font-size:14px;">🔍 Validate Event Payload</h4>
-              <textarea id="validate-payload" style="width:100%;height:120px;padding:10px;background:#111827;color:var(--accent);border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:11px;resize:vertical;" placeholder='{{"event_name":"Purchase","event_time":1234567890,"user_data":{{"em":["test@example.com"]}},"custom_data":{{"value":1500,"currency":"BDT"}}}}'></textarea>
+              <textarea id="validate-payload" style="width:100%;height:120px;padding:10px;background:#111827;color:var(--accent);border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:11px;resize:vertical;" placeholder='{"event_name":"Purchase","event_time":1234567890,"user_data":{"em":["test@example.com"]},"custom_data":{"value":1500,"currency":"BDT"}}'></textarea>
               <button class="btn-sm btn-info" onclick="validatePayload()" style="width:100%;padding:10px;font-size:13px;margin-top:8px;">🔍 Validate</button>
               <div id="validate-result" style="margin-top:10px;font-size:12px;"></div>
             </div>
@@ -889,3 +935,4 @@ function send_capi_event($event_name, $url, $value, $event_id, $product_id) {{
     """
 
     return HTMLResponse(client_html(f"Dashboard — {client.name}", body))
+
