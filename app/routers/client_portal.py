@@ -573,16 +573,16 @@ async def client_dashboard(request: Request, db: AsyncSession = Depends(get_db))
     </div>
 
     <div class="tabs">
-      <button class="tab-btn active" onclick="openTab(event, 'tab-easy')">🚀 Easy Setup</button>
-      <button class="tab-btn" onclick="openTab(event, 'tab-generator')">🛠️ Event Generator</button>
-      <button class="tab-btn" onclick="openTab(event, 'tab-gtm')">⚙️ GTM Server</button>
-      <button class="tab-btn" onclick="openTab(event, 'tab-wp')">📝 WordPress</button>
-      <button class="tab-btn" onclick="openTab(event, 'tab-custom')">💻 Custom</button>
-      <button class="tab-btn" onclick="openTab(event, 'tab-test')">🧪 Testing</button>
+      <button class="tab-btn active" onclick="openInnerTab(event, 'tab-easy')">🚀 Easy Setup</button>
+      <button class="tab-btn" onclick="openInnerTab(event, 'tab-generator')">🛠️ Event Generator</button>
+      <button class="tab-btn" onclick="openInnerTab(event, 'tab-gtm')">⚙️ GTM Server</button>
+      <button class="tab-btn" onclick="openInnerTab(event, 'tab-wp')">📝 WordPress</button>
+      <button class="tab-btn" onclick="openInnerTab(event, 'tab-custom')">💻 Custom</button>
+      <button class="tab-btn" onclick="openInnerTab(event, 'tab-test')">🧪 Testing</button>
     </div>
 
     <!-- GENERATOR TAB -->
-    <div id="tab-generator" class="tab-content card" style="margin-bottom:20px">
+    <div id="tab-generator" class="inner-tab-content card" style="margin-bottom:20px">
       <div class="card-title"><span class="icon">🛠️</span> Event Code Generator</div>
       
       <div style="margin-bottom:20px;padding:14px;background:rgba(255,82,82,0.1);border:1px solid rgba(255,82,82,0.3);border-radius:8px;font-size:13px;color:#ff5252;line-height:1.6">
@@ -624,7 +624,7 @@ async def client_dashboard(request: Request, db: AsyncSession = Depends(get_db))
     </div>
 
     <!-- EASY SETUP TAB (1-LINE TRACKER) -->
-    <div id="tab-easy" class="tab-content active card" style="margin-bottom:20px">
+    <div id="tab-easy" class="inner-tab-content active card" style="margin-bottom:20px">
       <div class="card-title"><span class="icon">🚀</span> Easy Setup — মাত্র ১ লাইন কোড! <span style="font-size:12px;color:#00e676;margin-left:8px;">✅ সবচেয়ে সহজ</span></div>
       <div style="color:#aaa;font-size:14px;line-height:1.8">
         <p style="color:#ccc;margin-bottom:12px;">আপনার ওয়েবসাইটের <code>&lt;head&gt;</code> বা <code>&lt;body&gt;</code>-র শেষে নিচের ১ লাইন কোড বসান। ব্যস, PageView অটো ট্র্যাক হবে!</p>
@@ -686,7 +686,7 @@ capi('setUser', {{
     </div>
 
     <!-- WORDPRESS TAB (AS EASY AS 5 YEARS OLD) -->
-    <div id="tab-wp" class="tab-content card" style="margin-bottom:20px">
+    <div id="tab-wp" class="inner-tab-content card" style="margin-bottom:20px">
       <div class="card-title"><span class="icon">📝</span> WordPress Setup (সবচেয়ে সহজ নিয়ম)</div>
       <div style="color:#aaa;font-size:14px;line-height:1.8">
         <p><strong style="color:#fff">ধাপ ১:</strong> আপনার WordPress ওয়েবসাইটে লগিন করুন।</p>
@@ -788,16 +788,16 @@ function send_capi_event($event_name, $url, $value, $event_id, $product_id) {{
     </div>
 
     <div class="tabs">
-      <button class="tab-btn active" onclick="openTab(event, 'tab-easy')">🚀 Easy Setup</button>
-      <button class="tab-btn" onclick="openTab(event, 'tab-generator')">🛠️ Event Generator</button>
-      <button class="tab-btn" onclick="openTab(event, 'tab-gtm')">⚙️ GTM Server</button>
-      <button class="tab-btn" onclick="openTab(event, 'tab-wp')">📝 WordPress</button>
-      <button class="tab-btn" onclick="openTab(event, 'tab-custom')">💻 Custom</button>
-      <button class="tab-btn" onclick="openTab(event, 'tab-test')">🧪 Testing</button>
+      <button class="tab-btn active" onclick="openInnerTab(event, 'tab-easy')">🚀 Easy Setup</button>
+      <button class="tab-btn" onclick="openInnerTab(event, 'tab-generator')">🛠️ Event Generator</button>
+      <button class="tab-btn" onclick="openInnerTab(event, 'tab-gtm')">⚙️ GTM Server</button>
+      <button class="tab-btn" onclick="openInnerTab(event, 'tab-wp')">📝 WordPress</button>
+      <button class="tab-btn" onclick="openInnerTab(event, 'tab-custom')">💻 Custom</button>
+      <button class="tab-btn" onclick="openInnerTab(event, 'tab-test')">🧪 Testing</button>
     </div>
 
     <!-- GENERATOR TAB -->
-    <div id="tab-generator" class="tab-content card" style="margin-bottom:20px">
+    <div id="tab-generator" class="inner-tab-content card" style="margin-bottom:20px">
       <div class="card-title"><span class="icon">🛠️</span> Event Code Generator</div>
       
       <div style="margin-bottom:20px;padding:14px;background:rgba(255,82,82,0.1);border:1px solid rgba(255,82,82,0.3);border-radius:8px;font-size:13px;color:#ff5252;line-height:1.6">
@@ -839,7 +839,7 @@ function send_capi_event($event_name, $url, $value, $event_id, $product_id) {{
     </div>
 
     <!-- EASY SETUP TAB (1-LINE TRACKER) -->
-    <div id="tab-easy" class="tab-content active card" style="margin-bottom:20px">
+    <div id="tab-easy" class="inner-tab-content active card" style="margin-bottom:20px">
       <div class="card-title"><span class="icon">🚀</span> Easy Setup — মাত্র ১ লাইন কোড! <span style="font-size:12px;color:#00e676;margin-left:8px;">✅ সবচেয়ে সহজ</span></div>
       <div style="color:#aaa;font-size:14px;line-height:1.8">
         <p style="color:#ccc;margin-bottom:12px;">আপনার ওয়েবসাইটের <code>&lt;head&gt;</code> বা <code>&lt;body&gt;</code>-র শেষে নিচের ১ লাইন কোড বসান। ব্যস, PageView অটো ট্র্যাক হবে!</p>
@@ -901,7 +901,7 @@ capi('setUser', {{
     </div>
 
     <!-- WORDPRESS TAB (AS EASY AS 5 YEARS OLD) -->
-    <div id="tab-wp" class="tab-content card" style="margin-bottom:20px">
+    <div id="tab-wp" class="inner-tab-content card" style="margin-bottom:20px">
       <div class="card-title"><span class="icon">📝</span> WordPress Setup (সবচেয়ে সহজ নিয়ম)</div>
       <div style="color:#aaa;font-size:14px;line-height:1.8">
         <p><strong style="color:#fff">ধাপ ১:</strong> আপনার WordPress ওয়েবসাইটে লগিন করুন।</p>
