@@ -95,37 +95,44 @@ function capigw_settings_page() {
     $nonce    = wp_create_nonce( 'capigw_nonce' );
     ?>
     <style>
-        .capigw-wrap { max-width: 800px; margin: 20px auto; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        .capigw-header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); color: #fff; padding: 30px; border-radius: 12px; margin-bottom: 24px; }
-        .capigw-header h1 { margin: 0 0 8px; font-size: 26px; font-weight: 700; }
-        .capigw-header p { margin: 0; color: #b0b0d0; font-size: 14px; }
-        .capigw-header .version { background: rgba(126,87,194,0.3); color: #b39ddb; padding: 3px 10px; border-radius: 20px; font-size: 12px; margin-left: 10px; }
-        .capigw-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
-        .capigw-card h2 { margin: 0 0 16px; font-size: 18px; color: #1a1a2e; border-bottom: 2px solid #7e57c2; padding-bottom: 8px; display: inline-block; }
+        .capigw-wrap { max-width: 860px; margin: 20px 20px 32px 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1d2327; }
+        .capigw-header { background: #fff; color: #1d2327; padding: 24px; border: 1px solid #dcdcde; border-left: 4px solid #4f46e5; border-radius: 4px; margin-bottom: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+        .capigw-header h1 { margin: 0 0 6px; font-size: 24px; font-weight: 700; line-height: 1.25; }
+        .capigw-header p { margin: 0; color: #50575e; font-size: 14px; }
+        .capigw-header .version { background: #eef2ff; color: #3730a3; padding: 3px 9px; border-radius: 999px; font-size: 12px; margin-left: 8px; vertical-align: middle; }
+        .capigw-card { background: #fff; border: 1px solid #dcdcde; border-radius: 4px; padding: 22px; margin-bottom: 18px; box-shadow: 0 1px 2px rgba(0,0,0,0.035); }
+        .capigw-card h2 { margin: 0 0 16px; font-size: 17px; color: #1d2327; border-bottom: 1px solid #dcdcde; padding-bottom: 10px; display: block; }
+        .capigw-card > p { color: #50575e !important; line-height: 1.55; }
         .capigw-field { margin-bottom: 18px; }
-        .capigw-field label { display: block; font-weight: 600; margin-bottom: 6px; color: #333; font-size: 14px; }
+        .capigw-field label { display: block; font-weight: 600; margin-bottom: 6px; color: #1d2327; font-size: 14px; }
         .capigw-field input[type="text"],
         .capigw-field input[type="password"],
-        .capigw-field select { width: 100%; padding: 10px 14px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; transition: border-color 0.3s; }
-        .capigw-field input:focus, .capigw-field select:focus { border-color: #7e57c2; outline: none; box-shadow: 0 0 0 3px rgba(126,87,194,0.15); }
-        .capigw-field .description { font-size: 12px; color: #888; margin-top: 4px; }
-        .capigw-toggle { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-        .capigw-toggle label { font-weight: 500; color: #333; margin: 0; cursor: pointer; }
+        .capigw-field select { width: 100%; max-width: 100%; min-height: 40px; padding: 8px 12px; border: 1px solid #8c8f94; border-radius: 4px; font-size: 14px; transition: border-color 0.15s, box-shadow 0.15s; }
+        .capigw-field input:focus, .capigw-field select:focus { border-color: #4f46e5; outline: none; box-shadow: 0 0 0 2px rgba(79,70,229,0.18); }
+        .capigw-field .description { font-size: 13px; color: #50575e; margin-top: 6px; line-height: 1.45; }
+        .capigw-toggle { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid #edf0f2; border-radius: 4px; background: #fbfbfc; }
+        .capigw-toggle label { font-weight: 500; color: #1d2327; margin: 0; cursor: pointer; }
         .capigw-switch { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
         .capigw-switch input { opacity: 0; width: 0; height: 0; }
-        .capigw-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #ccc; border-radius: 24px; transition: 0.3s; }
-        .capigw-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.3s; }
-        .capigw-switch input:checked + .capigw-slider { background: #7e57c2; }
+        .capigw-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #a7aaad; border-radius: 24px; transition: 0.2s; }
+        .capigw-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.22); }
+        .capigw-switch input:checked + .capigw-slider { background: #4f46e5; }
         .capigw-switch input:checked + .capigw-slider:before { transform: translateX(20px); }
-        .capigw-btn { padding: 10px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; }
-        .capigw-btn-primary { background: #7e57c2; color: #fff; }
-        .capigw-btn-primary:hover { background: #6a3fb5; }
-        .capigw-btn-test { background: #16213e; color: #fff; margin-right: 12px; }
-        .capigw-btn-test:hover { background: #0f3460; }
-        .capigw-status { padding: 12px 16px; border-radius: 8px; margin-top: 12px; display: none; font-size: 13px; }
-        .capigw-status.success { display: block; background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
-        .capigw-status.error { display: block; background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
-        .capigw-events-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .capigw-btn { min-height: 40px; padding: 9px 18px; border: 1px solid transparent; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+        .capigw-btn-primary { background: #4f46e5; color: #fff; border-color: #4338ca; }
+        .capigw-btn-primary:hover { background: #4338ca; color: #fff; }
+        .capigw-btn-test { background: #1d2327; color: #fff; margin-right: 10px; }
+        .capigw-btn-test:hover { background: #2c3338; color: #fff; }
+        .capigw-status { padding: 12px 14px; border-radius: 4px; margin-top: 12px; display: none; font-size: 13px; line-height: 1.45; }
+        .capigw-status.success { display: block; background: #ecfdf3; color: #166534; border: 1px solid #bbf7d0; }
+        .capigw-status.error { display: block; background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+        .capigw-events-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+        @media (max-width: 782px) {
+            .capigw-wrap { margin-right: 12px; }
+            .capigw-header, .capigw-card { padding: 18px; }
+            .capigw-events-grid { grid-template-columns: 1fr; }
+            .capigw-btn { width: 100%; margin: 0 0 10px; text-align: center; }
+        }
     </style>
 
     <div class="capigw-wrap">

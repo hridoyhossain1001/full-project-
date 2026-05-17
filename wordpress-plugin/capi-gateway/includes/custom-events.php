@@ -139,12 +139,15 @@ function capigw_custom_events_page() {
             html += '<option value="click"' + (ev.trigger === 'click' ? ' selected' : '') + '>🖱️ CSS Selector Click</option>';
             html += '<option value="url"' + (ev.trigger === 'url' ? ' selected' : '') + '>🔗 URL Pattern Match</option>';
             html += '<option value="form"' + (ev.trigger === 'form' ? ' selected' : '') + '>📝 Form Submit</option>';
+            html += '<option value="timer"' + (ev.trigger === 'timer' ? ' selected' : '') + '>⏱️ Time on Page (Timer)</option>';
             html += '</select></div>';
             html += '</div>';
 
             html += '<div class="ceb-row">';
             if (ev.trigger === 'url') {
                 html += '<div class="ceb-field"><label>URL Pattern</label><input type="text" value="' + escHtml(ev.url_pattern) + '" onchange="cebUpdate(' + i + ',\'url_pattern\',this.value)" placeholder="/thank-you/ or /success/"><div class="ceb-hint">URL-এ এই টেক্সট থাকলে ইভেন্ট ফায়ার হবে</div></div>';
+            } else if (ev.trigger === 'timer') {
+                html += '<div class="ceb-field"><label>Time (Seconds)</label><input type="number" value="' + escHtml(ev.selector) + '" onchange="cebUpdate(' + i + ',\'selector\',this.value)" placeholder="30"><div class="ceb-hint">কত সেকেন্ড পর ইভেন্ট ফায়ার হবে (যেমন: 30)</div></div>';
             } else {
                 html += '<div class="ceb-field"><label>CSS Selector</label><input type="text" value="' + escHtml(ev.selector) + '" onchange="cebUpdate(' + i + ',\'selector\',this.value)" placeholder=".wishlist-btn, #apply-coupon"><div class="ceb-hint">এই element-এ ক্লিক/সাবমিট করলে ইভেন্ট ফায়ার হবে</div></div>';
             }
@@ -288,6 +291,11 @@ function capigw_inject_custom_events_js() {
                         sendCustom(ev);
                     }
                 });
+            } else if (ev.trigger === 'timer' && ev.selector) {
+                var secs = parseInt(ev.selector, 10);
+                if (secs > 0) {
+                    setTimeout(function() { sendCustom(ev); }, secs * 1000);
+                }
             }
         });
     })();
