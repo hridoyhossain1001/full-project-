@@ -530,6 +530,41 @@ async def admin_dashboard(
     )
     queued_events = outbox_r.scalar() or 0
 
+    dead_outbox_r = await db.execute(
+        select(sql_func.count(EventOutbox.id)).where(EventOutbox.status == "dead")
+    )
+    dead_outbox = dead_outbox_r.scalar() or 0
+
+    oldest_outbox_r = await db.execute(
+        select(sql_func.min(EventOutbox.created_at)).where(
+            EventOutbox.status.in_(["queued", "processing"])
+        )
+    )
+    oldest_outbox_at = oldest_outbox_r.scalar()
+
+    last_outbox_error_r = await db.execute(
+        select(EventOutbox.last_error)
+        .where(and_(EventOutbox.status == "dead", EventOutbox.last_error.is_not(None)))
+        .order_by(EventOutbox.created_at.desc())
+        .limit(1)
+    )
+    last_outbox_error = last_outbox_error_r.scalar()
+
+    if oldest_outbox_at:
+        if oldest_outbox_at.tzinfo is None:
+            oldest_outbox_at = oldest_outbox_at.replace(tzinfo=timezone.utc)
+        oldest_seconds = max(0, int((datetime.now(timezone.utc) - oldest_outbox_at).total_seconds()))
+        if oldest_seconds >= 3600:
+            oldest_outbox_age = f"{oldest_seconds // 3600}h"
+        elif oldest_seconds >= 60:
+            oldest_outbox_age = f"{oldest_seconds // 60}m"
+        else:
+            oldest_outbox_age = f"{oldest_seconds}s"
+    else:
+        oldest_outbox_age = "none"
+
+    outbox_error_title = html.escape(last_outbox_error or "")
+
     total_calls = events_today + failed_today
     success_rate = round(events_today / total_calls * 100, 1) if total_calls > 0 else 100.0
 
@@ -584,7 +619,7 @@ async def admin_dashboard(
           <span class="metric-icon">📶</span>
         </div>
         <div class="metric-value">{queued_events:,}</div>
-        <div class="metric-trend"><span class="trend-neutral">{retries:,}</span> legacy retries</div>
+        <div class="metric-trend" title="{outbox_error_title}"><span class="trend-neutral">{dead_outbox:,}</span> dead | oldest {oldest_outbox_age} | {retries:,} legacy</div>
       </div>
     </div>
     '''
@@ -1001,14 +1036,14 @@ async def client_instructions(
     <!-- GTM TAB -->
     <div id="tab-gtm" class="tab-content active card" style="margin-bottom:20px">
       <div class="card-header">
-        <div class="card-title">GTM Server Container Setup <span class="badge badge-healthy" style="margin-left:8px;">Recommended</span></div>
+        <div class="card-title">GTM Server Container Setup <span class="badge badge-warning" style="margin-left:8px;">Advanced</span></div>
       </div>
       <div style="padding:24px;color:var(--text-muted);font-size:14px;line-height:1.6;">
         <div style="display:grid;gap:16px;">
           <div><strong style="color:#fff;">Step 1:</strong> Create a <strong>Server Container</strong> in Google Tag Manager.</div>
           <div><strong style="color:#fff;">Step 2:</strong> Create a new <strong>Tag → HTTP Request</strong>.</div>
           <div>
-            <strong style="color:#fff;display:block;margin-bottom:8px;">Step 3: Apply these exact settings:</strong>
+            <strong style="color:#fff;display:block;margin-bottom:8px;">Step 3: Apply these settings:</strong>
             <div style="position:relative;">
               <button class="btn-sm btn-outline" onclick="copyText('gtm_settings')" style="position:absolute;top:12px;right:12px;">Copy Text</button>
               <pre class="instr-box" id="gtm_settings" style="padding:16px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.05);color:#93c5fd;font-size:13px;margin:0;">URL: {safe_endpoint}
@@ -1018,6 +1053,8 @@ Content-Type: application/json
 Headers:
   X-API-Key: {safe_api_key}
   X-CAPI-Origin: {safe_capi_origin}
+  X-CAPI-Timestamp: {{unix_timestamp}}
+  X-CAPI-Signature: {{hmac_sha256(timestamp + "." + raw_body, api_key)}}
 
 Body (JSON):
 {{
@@ -1037,7 +1074,7 @@ Body (JSON):
 }}</pre>
             </div>
           </div>
-          <div><strong style="color:#fff;">Step 4:</strong> Set the Trigger to <strong>All Events</strong> or specific events.</div>
+          <div><strong style="color:#fff;">Step 4:</strong> Set the Trigger to specific conversion events only. Avoid sending every minor event.</div>
         </div>
         <div class="alert alert-success" style="margin-top:20px;margin-bottom:0;">
           <span style="font-size:16px">💡</span>
@@ -1047,6 +1084,7 @@ Body (JSON):
               <li><strong>event_id</strong> must be unique (e.g. <code>order-12345-1715000000</code>).</li>
               <li>Send the <strong>exact same event_id</strong> from Browser and Server for deduplication to work.</li>
               <li>Always include <code>"action_source": "website"</code>.</li>
+              <li>If the client has a locked domain, signed headers are required for server-to-server requests.</li>
             </ul>
           </div>
         </div>
@@ -1099,57 +1137,19 @@ Body (JSON):
       </div>
       <div style="padding:24px;color:var(--text-muted);font-size:14px;line-height:1.6;">
         <div style="display:grid;gap:16px;">
-          <div><strong style="color:#fff;">Step 1:</strong> Log into WordPress and install the free <strong>WPCode</strong> plugin.</div>
-          <div><strong style="color:#fff;">Step 2:</strong> Go to WPCode → "Header & Footer".</div>
+          <div class="alert alert-success" style="margin:0;"><span style="font-size:16px">✅</span><div><strong>Recommended:</strong> Use the official CAPI Gateway WordPress plugin from the plugin download. It sends signed requests, receives updates, and avoids duplicate WooCommerce events.</div></div>
+          <div class="alert alert-error" style="margin:0;"><span style="font-size:16px">⚠️</span><div>Do not add extra WooCommerce/PHP snippets beside the official plugin. Manual snippets can create duplicate Purchase/AddToCart/ViewContent events.</div></div>
+          <div><strong style="color:#fff;">Step 1:</strong> Download the official plugin from the client portal or plugin download endpoint.</div>
+          <div><strong style="color:#fff;">Step 2:</strong> WordPress Admin → Plugins → Add New → Upload Plugin, then activate it.</div>
+          <div><strong style="color:#fff;">Step 3:</strong> Open the CAPI Gateway menu, paste the client's API key, and save.</div>
           <div>
-            <strong style="color:#fff;display:block;margin-bottom:8px;">Step 3: Paste this in the Header (For PageViews):</strong>
+            <strong style="color:#fff;display:block;margin-bottom:8px;">Non-WooCommerce/custom site only: add this site JS:</strong>
             <div style="position:relative;">
               <button class="btn-sm btn-outline" onclick="copyText('wp_pv_easy')" style="position:absolute;top:12px;right:12px;">Copy</button>
               <pre class="instr-box" id="wp_pv_easy" style="padding:16px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.05);color:#93c5fd;font-size:13px;margin:0;">&lt;script src="{safe_tracker_url}" defer&gt;&lt;/script&gt;</pre>
             </div>
           </div>
-          <div>
-            <strong style="color:#fff;display:block;margin-bottom:8px;margin-top:16px;">Step 4: E-Commerce Tracking (Purchase, AddToCart, etc):</strong>
-            <p style="margin-bottom:12px;">In WPCode, create a new "Add Your Custom Code" snippet. Set Code Type to <strong>PHP Snippet</strong>, paste the code below, set it to Active, and Save.</p>
-            <div style="position:relative;">
-              <button class="btn-sm btn-outline" onclick="copyText('wp_all_easy')" style="position:absolute;top:12px;right:12px;">Copy</button>
-              <pre class="instr-box" id="wp_all_easy" style="padding:16px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.05);color:#93c5fd;font-size:13px;margin:0;max-height:300px;overflow-y:auto;">&lt;?php
-add_action('woocommerce_thankyou', 'send_capi_purchase_easy');
-function send_capi_purchase_easy($order_id) {{
-    $order = wc_get_order($order_id);
-    send_capi_event('Purchase', $order-&gt;get_checkout_url(), $order-&gt;get_total(), "order-" . $order_id, null);
-}}
-
-function send_capi_event($event_name, $url, $value, $event_id, $product_id) {{
-    $data = ['data' =&gt; [[
-        'event_name' =&gt; $event_name,
-        'event_time' =&gt; time(),
-        'event_id' =&gt; $event_id,
-        'event_source_url' =&gt; $url,
-        'action_source' =&gt; 'website',
-        'user_data' =&gt; [
-            'client_ip_address' =&gt; $_SERVER['REMOTE_ADDR'] ?? '',
-            'client_user_agent' =&gt; $_SERVER['HTTP_USER_AGENT'] ?? ''
-        ],
-        'custom_data' =&gt; [
-            'value' =&gt; (float) $value,
-            'currency' =&gt; get_woocommerce_currency()
-        ]
-    ]]];
-    
-    wp_remote_post('{safe_endpoint}', [
-        'body' =&gt; json_encode($data),
-        'headers' =&gt; [
-            'Content-Type' =&gt; 'application/json',
-            'X-API-Key' =&gt; '{safe_api_key}',
-            'X-CAPI-Origin' =&gt; '{safe_capi_origin}'
-        ],
-        'blocking' =&gt; false
-    ]);
-}}
-?&gt;</pre>
-            </div>
-          </div>
+          <div class="alert alert-success" style="margin:0;"><span style="font-size:16px">✅</span><div>WooCommerce events should come from the official plugin only. For custom buttons/forms, use the plugin's Custom Event Builder or the custom site JS above.</div></div>
         </div>
       </div>
     </div>
@@ -1167,6 +1167,8 @@ function send_capi_event($event_name, $url, $value, $event_id, $product_id) {{
   -H "Content-Type: application/json" \
   -H "X-API-Key: {safe_api_key}" \
   -H "X-CAPI-Origin: {safe_capi_origin}" \
+  -H "X-CAPI-Timestamp: UNIX_TIMESTAMP" \
+  -H "X-CAPI-Signature: HMAC_SHA256(timestamp.raw_body, api_key)" \
   -d '{{
     "data": [{{
       "event_name": "Purchase",

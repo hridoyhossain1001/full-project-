@@ -1,0 +1,1249 @@
+﻿diff --git a/.env.example b/.env.example
+index e7309a2..55e6604 100644
+--- a/.env.example
++++ b/.env.example
+@@ -8,12 +8,20 @@ ENCRYPTION_KEY=change-me-valid-fernet-key
+ ALLOWED_HOSTS=localhost,127.0.0.1,testserver,*.herokuapp.com
+ ENABLE_DOCS=false
+ SKIP_CREATE_ALL=true
++ENABLE_CREATE_ALL=false
++ENABLE_OUTBOX_IN_WEB=true
++ENABLE_RETRY_IN_WEB=true
++ENABLE_MAINTENANCE_IN_WEB=true
+ ALLOW_LEGACY_PLAINTEXT_TOKENS=false
+ CAPI_SIGNATURE_WINDOW_SECONDS=300
+ REQUIRE_WC_WEBHOOK_SIGNATURE=true
+-HTTP_MAX_CONNECTIONS=100
+-HTTP_MAX_KEEPALIVE_CONNECTIONS=40
++HTTP_MAX_CONNECTIONS=20
++HTTP_MAX_KEEPALIVE_CONNECTIONS=10
+ HTTP_TIMEOUT_SECONDS=15.0
+-EVENT_WORKER_BATCH_SIZE=25
+-EVENT_WORKER_POLL_SECONDS=1.0
++EVENT_WORKER_BATCH_SIZE=5
++EVENT_WORKER_POLL_SECONDS=3.0
+ EVENT_OUTBOX_MAX_ATTEMPTS=8
++DB_POOL_SIZE=3
++DB_MAX_OVERFLOW=2
++DB_POOL_TIMEOUT=10
++DB_POOL_RECYCLE=300
+diff --git a/app/database.py b/app/database.py
+index ab4bb30..6c3dcc7 100644
+--- a/app/database.py
++++ b/app/database.py
+@@ -17,14 +17,19 @@ elif raw_url.startswith("postgresql://"):
+ 
+ DATABASE_URL = raw_url
+ 
++DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "3"))
++DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "2"))
++DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "300"))
++DB_POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "10"))
++
+ engine = create_async_engine(
+     DATABASE_URL,
+     echo=False,
+-    pool_size=5,          # 1 worker ├ù 5 = 5 base connections (Heroku basic plan)
+-    max_overflow=5,       # 1 worker ├ù 5 = 5 overflow, total max = 10
+-    pool_recycle=300,     # Recycle stale connections every 5 min
++    pool_size=DB_POOL_SIZE,
++    max_overflow=DB_MAX_OVERFLOW,
++    pool_recycle=DB_POOL_RECYCLE,
+     pool_pre_ping=True,   # Dead connection auto-detect ΓÇö avoids "connection reset" errors
+-    pool_timeout=10,      # Max 10s wait for a connection from pool
++    pool_timeout=DB_POOL_TIMEOUT,
+ )
+ 
+ AsyncSessionLocal = async_sessionmaker(
+diff --git a/app/main.py b/app/main.py
+index e250f66..e5939e2 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -50,19 +50,28 @@ async def lifespan(app: FastAPI):
+     logger.info("≡ƒÜÇ CAPI Gateway αª╕αºìαªƒαª╛αª░αºìαªƒ αª╣αªÜαºìαª¢αºç...")
+ 
+     # ΓöÇΓöÇΓöÇ Database Schema ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-    # Production-αªÅ Alembic migration αª¼αºìαª»αª¼αª╣αª╛αª░ αªòαª░αºüαª¿αÑñ create_all αª╢αºüαªºαºü dev/initial
+-    # setup-αªÅαª░ αª£αª¿αºìαª»αÑñ SKIP_CREATE_ALL=true αª╕αºçαªƒ αªòαª░αª▓αºç αªÅαªƒαª┐ αª╕αºìαªòαª┐αª¬ αª╣αª¼αºçαÑñ
+-    if os.getenv("SKIP_CREATE_ALL", "").lower() in ("true", "1", "yes"):
+-        logger.info("Γä╣∩╕Å  create_all αª╕αºìαªòαª┐αª¬ ΓÇö Alembic migration αª¼αºìαª»αª¼αª╣αª╛αª░ αªòαª░αºüαª¿αÑñ")
+-    else:
++    # Production-αªÅ Alembic migration αª¼αºìαª»αª¼αª╣αª╛αª░ αªòαª░αºüαª¿αÑñ create_all αª╢αºüαªºαºü explicit
++    # dev/initial setup-αªÅαª░ αª£αª¿αºìαª»: ENABLE_CREATE_ALL=true.
++    skip_create_all = os.getenv("SKIP_CREATE_ALL", "").lower() in ("true", "1", "yes")
++    enable_create_all = os.getenv("ENABLE_CREATE_ALL", "").lower() in ("true", "1", "yes")
++    if enable_create_all and not skip_create_all:
+         async with engine.begin() as conn:
+             await conn.run_sync(Base.metadata.create_all)
+         logger.info("Γ£à αªíαª╛αªƒαª╛αª¼αºçαª╕ αªƒαºçαª¼αª┐αª▓ αªñαºêαª░αª┐/αª»αª╛αªÜαª╛αªç αª╕αª½αª▓αÑñ")
++    else:
++        logger.info("Γä╣∩╕Å  create_all αª╕αºìαªòαª┐αª¬ ΓÇö Alembic migration αª¼αºìαª»αª¼αª╣αª╛αª░ αªòαª░αºüαª¿αÑñ")
+ 
+     # ≡ƒöä Retry Service ΓÇö αª╢αºüαªºαºüαª«αª╛αªñαºìαª░ ENABLE_RETRY_IN_WEB=true αª╣αª▓αºç αªÅαªç process-αªÅ αªÜαª▓αª¼αºç
+     # Worker dyno αª¿αª╛ αªÑαª╛αªòαª▓αºç Procfile-αªÅ: web: ENABLE_RETRY_IN_WEB=true uvicorn ... --workers 1
+     # αªàαªÑαª¼αª╛ Heroku config var-αªÅ αª╕αºçαªƒ αªòαª░αºüαª¿αÑñ αªÅαªòαª╛αªºαª┐αªò worker αªÑαª╛αªòαª▓αºç retry duplicate αª╣αª¼αºç!
+     import asyncio
++    if os.getenv("ENABLE_OUTBOX_IN_WEB", "").lower() in ("true", "1", "yes"):
++        from app.services.event_worker import process_event_outbox_forever
++        asyncio.create_task(process_event_outbox_forever())
++        logger.info("Outbox worker started in Web Process.")
++    else:
++        logger.info("Outbox worker disabled in Web Process (ENABLE_OUTBOX_IN_WEB not set).")
++
+     if os.getenv("ENABLE_RETRY_IN_WEB", "").lower() in ("true", "1", "yes"):
+         from app.services.retry_service import retry_failed_events
+         asyncio.create_task(retry_failed_events())
+@@ -70,15 +79,18 @@ async def lifespan(app: FastAPI):
+     else:
+         logger.info("Γä╣∩╕Å  Retry Service αªÅαªç process-αªÅ αª¿αª┐αª╖αºìαªòαºìαª░αª┐αª»αª╝ (ENABLE_RETRY_IN_WEB αª╕αºçαªƒ αª¿αºçαªç)αÑñ")
+ 
+-    # ≡ƒº╣ Auto-Cleanup Service
+-    from app.services.cleanup_service import auto_cleanup_database
+-    asyncio.create_task(auto_cleanup_database())
+-    logger.info("≡ƒº╣ Background Auto-Cleanup Service αª╕αºìαªƒαª╛αª░αºìαªƒ αª╣αª»αª╝αºçαª¢αºç (30 days retention)αÑñ")
++    if os.getenv("ENABLE_MAINTENANCE_IN_WEB", "").lower() in ("true", "1", "yes"):
++        # ≡ƒº╣ Auto-Cleanup Service
++        from app.services.cleanup_service import auto_cleanup_database
++        asyncio.create_task(auto_cleanup_database())
++        logger.info("≡ƒº╣ Background Auto-Cleanup Service αª╕αºìαªƒαª╛αª░αºìαªƒ αª╣αª»αª╝αºçαª¢αºç (Web Process)αÑñ")
+ 
+-    # ΓÅ░ Pending Events Auto-Expiry Service
+-    from app.services.expiry_service import expire_old_pending_events
+-    asyncio.create_task(expire_old_pending_events())
+-    logger.info("ΓÅ░ Pending Events Expiry Service αª╕αºìαªƒαª╛αª░αºìαªƒ αª╣αª»αª╝αºçαª¢αºç (7 days limit)αÑñ")
++        # ΓÅ░ Pending Events Auto-Expiry Service
++        from app.services.expiry_service import expire_old_pending_events
++        asyncio.create_task(expire_old_pending_events())
++        logger.info("ΓÅ░ Pending Events Expiry Service αª╕αºìαªƒαª╛αª░αºìαªƒ αª╣αª»αª╝αºçαª¢αºç (Web Process)αÑñ")
++    else:
++        logger.info("Γä╣∩╕Å  Maintenance loops web process-αªÅ αª¿αª┐αª╖αºìαªòαºìαª░αª┐αª»αª╝; worker process αª¼αºìαª»αª¼αª╣αª╛αª░ αªòαª░αºüαª¿αÑñ")
+ 
+     # ≡ƒîì GeoIP Database Load
+     from app.services.geoip_service import download_geoip_db_if_missing, close_geoip_db
+diff --git a/app/routers/admin.py b/app/routers/admin.py
+index ccb3707..95ecdf9 100644
+--- a/app/routers/admin.py
++++ b/app/routers/admin.py
+@@ -530,6 +530,41 @@ async def admin_dashboard(
+     )
+     queued_events = outbox_r.scalar() or 0
+ 
++    dead_outbox_r = await db.execute(
++        select(sql_func.count(EventOutbox.id)).where(EventOutbox.status == "dead")
++    )
++    dead_outbox = dead_outbox_r.scalar() or 0
++
++    oldest_outbox_r = await db.execute(
++        select(sql_func.min(EventOutbox.created_at)).where(
++            EventOutbox.status.in_(["queued", "processing"])
++        )
++    )
++    oldest_outbox_at = oldest_outbox_r.scalar()
++
++    last_outbox_error_r = await db.execute(
++        select(EventOutbox.last_error)
++        .where(and_(EventOutbox.status == "dead", EventOutbox.last_error.is_not(None)))
++        .order_by(EventOutbox.created_at.desc())
++        .limit(1)
++    )
++    last_outbox_error = last_outbox_error_r.scalar()
++
++    if oldest_outbox_at:
++        if oldest_outbox_at.tzinfo is None:
++            oldest_outbox_at = oldest_outbox_at.replace(tzinfo=timezone.utc)
++        oldest_seconds = max(0, int((datetime.now(timezone.utc) - oldest_outbox_at).total_seconds()))
++        if oldest_seconds >= 3600:
++            oldest_outbox_age = f"{oldest_seconds // 3600}h"
++        elif oldest_seconds >= 60:
++            oldest_outbox_age = f"{oldest_seconds // 60}m"
++        else:
++            oldest_outbox_age = f"{oldest_seconds}s"
++    else:
++        oldest_outbox_age = "none"
++
++    outbox_error_title = html.escape(last_outbox_error or "")
++
+     total_calls = events_today + failed_today
+     success_rate = round(events_today / total_calls * 100, 1) if total_calls > 0 else 100.0
+ 
+@@ -584,7 +619,7 @@ async def admin_dashboard(
+           <span class="metric-icon">≡ƒô╢</span>
+         </div>
+         <div class="metric-value">{queued_events:,}</div>
+-        <div class="metric-trend"><span class="trend-neutral">{retries:,}</span> legacy retries</div>
++        <div class="metric-trend" title="{outbox_error_title}"><span class="trend-neutral">{dead_outbox:,}</span> dead | oldest {oldest_outbox_age} | {retries:,} legacy</div>
+       </div>
+     </div>
+     '''
+diff --git a/app/routers/deferred_events.py b/app/routers/deferred_events.py
+index 3a7b463..5e36e42 100644
+--- a/app/routers/deferred_events.py
++++ b/app/routers/deferred_events.py
+@@ -2,6 +2,7 @@
+ Deferred Purchase Events Router
+ ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ αªàαª░αºìαªíαª╛αª░ αªòαª¿αª½αª╛αª░αºìαª«/αªòαºìαª»αª╛αª¿αºìαª╕αºçαª▓ αª╣αª▓αºç pending Purchase events αª«αºìαª»αª╛αª¿αºçαª£ αªòαª░αºçαÑñ
++αªòαª¿αª½αª╛αª░αºìαª« αª╣αª▓αºç event durable outbox queue-αªñαºç αª»αª╛αª»αª╝; worker Facebook delivery αªòαª░αºçαÑñ
+ 
+ Endpoints:
+   POST /api/v1/events/confirm       ΓÇö αªÅαªòαªƒαª┐ αªàαª░αºìαªíαª╛αª░ αªòαª¿αª½αª╛αª░αºìαª«
+@@ -10,25 +11,21 @@ Endpoints:
+   GET  /api/v1/events/pending       ΓÇö pending events-αªÅαª░ αª▓αª┐αª╕αºìαªƒ
+ """
+ 
+-import json
+ import logging
+ from datetime import datetime, timezone
+ from typing import List, Optional
+ 
+-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
++from fastapi import APIRouter, Depends, HTTPException, Query
+ from pydantic import BaseModel
+ from sqlalchemy import select, update, and_
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+-from app.database import get_db, AsyncSessionLocal
++from app.database import get_db
+ from app.dependencies import get_current_client, CachedClient
+ from app.models.pending_event import PendingEvent
+-from app.models.event_log import EventLog
+ from app.schemas.event import EventData
+-from app.services.capi_service import send_to_facebook
+-from app.services.tiktok_service import send_to_tiktok
+-from app.services.ga4_service import send_to_ga4
+-from app.services.usage_service import increment_usage_counters_db
++from app.services.event_worker import enqueue_events
++from app.services.usage_service import check_and_reserve_usage
+ 
+ logger = logging.getLogger(__name__)
+ router = APIRouter()
+@@ -77,15 +74,15 @@ class PendingListResponse(BaseModel):
+     events: List[PendingEventResponse]
+ 
+ 
+-# ΓöÇΓöÇΓöÇ Helper: Send confirmed event to Facebook ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++# ΓöÇΓöÇΓöÇ Helper: Queue confirmed event for worker delivery ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ 
+-async def _send_confirmed_event(
++async def _queue_confirmed_event(
+     client: CachedClient,
+     pending: PendingEvent,
+-    background_tasks: BackgroundTasks,
++    db: AsyncSession,
+ ) -> dict:
+     """
+-    pending_events αªÑαºçαªòαºç event data αª¿αª┐αª»αª╝αºç Facebook-αªÅ αª¬αª╛αªáαª╛αª»αª╝αÑñ
++    pending_events αªÑαºçαªòαºç event data αª¿αª┐αª»αª╝αºç durable outbox-αªÅ queue αªòαª░αºçαÑñ
+     event_time αªåαª¬αªíαºçαªƒ αªòαª░αºç (current time) ΓÇö Facebook αº¡ αªªαª┐αª¿αºçαª░ αª«αªºαºìαª»αºçαª░ event αªÜαª╛αª»αª╝αÑñ
+     """
+     event_dict = pending.event_data.copy()
+@@ -100,54 +97,21 @@ async def _send_confirmed_event(
+         logger.error(f"[{client.name}] Pending event parse error (order: {pending.order_id}): {e}")
+         raise HTTPException(status_code=500, detail=f"Event data parse error: {e}")
+ 
+-    # Facebook-αªÅ αª¬αª╛αªáαª╛αªô
+-    result = await send_to_facebook(client, [event])
+-
+-    # Usage counter increment (non-blocking)
+-    try:
+-        async with AsyncSessionLocal() as usage_db:
+-            await increment_usage_counters_db(usage_db, client, 1)
+-    except Exception as e:
+-        logger.warning(f"[{client.name}] Usage counter increment failed (non-fatal): {e}")
+-
+-    # Success log (background)
+-    async def _log_success():
+-        try:
+-            async with AsyncSessionLocal() as db:
+-                log_entry = EventLog(
+-                    client_id=client.id,
+-                    event_name=event_dict.get("event_name", "Purchase"),
+-                    event_id=event_dict.get("event_id"),
+-                    event_count=1,
+-                    status="success",
+-                    fb_response=json.dumps(result) if result else None,
+-                    ip_address=event_dict.get("user_data", {}).get("client_ip_address"),
+-                )
+-                db.add(log_entry)
+-                await db.commit()
+-        except Exception as e:
+-            logger.error(f"Deferred event log save error: {e}")
+-
+-    background_tasks.add_task(_log_success)
+-
+-    # TikTok CAPI (background)
+-    if client.tiktok_pixel_id and client.tiktok_access_token:
+-        background_tasks.add_task(send_to_tiktok, client, [event])
+-
+-    # GA4 (background)
+-    if client.ga4_measurement_id and client.ga4_api_secret:
+-        ga4_events = [event.model_dump(exclude_none=True)]
+-        background_tasks.add_task(
+-            send_to_ga4,
+-            events=ga4_events,
+-            measurement_id=client.ga4_measurement_id,
+-            api_secret=client.ga4_api_secret,
+-            cookies={},
+-            ip_address=event_dict.get("user_data", {}).get("client_ip_address", ""),
+-            user_agent=event_dict.get("user_data", {}).get("client_user_agent", ""),
+-        )
+-
+-    return result
++    events_data = [event.model_dump(exclude_none=True)]
++    reserved_keys = await check_and_reserve_usage(db, client, 1)
++    user_data = event_dict.get("user_data", {}) or {}
++    await enqueue_events(
++        db,
++        client_id=client.id,
++        events_data=events_data,
++        request_context={
++            "ip_address": user_data.get("client_ip_address"),
++            "user_agent": user_data.get("client_user_agent") or "",
++            "cookies": {},
++        },
++        usage_reserved=reserved_keys,
++    )
++    return event_dict
+ 
+ 
+ # ΓöÇΓöÇΓöÇ POST /events/confirm ΓÇö Single Order Confirm ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+@@ -159,12 +123,11 @@ async def _send_confirmed_event(
+ )
+ async def confirm_event(
+     payload: ConfirmRequest,
+-    background_tasks: BackgroundTasks,
+     client: CachedClient = Depends(get_current_client),
+     db: AsyncSession = Depends(get_db),
+ ):
+     """
+-    αªÅαªòαªƒαª┐ pending Purchase event αªòαª¿αª½αª╛αª░αºìαª« αªòαª░αºç Facebook-αªÅ αª¬αª╛αªáαª╛αª»αª╝αÑñ
++    αªÅαªòαªƒαª┐ pending Purchase event αªòαª¿αª½αª╛αª░αºìαª« αªòαª░αºç delivery queue-αªñαºç αª░αª╛αªûαºçαÑñ
+     Original user data (IP, UA, fbp, fbc) αª╕αª╣ αª¬αª╛αªáαª╛αª¿αºï αª╣αª»αª╝αÑñ
+     """
+     result = await db.execute(
+@@ -199,15 +162,18 @@ async def confirm_event(
+             detail=f"Pending event not found: {payload.order_id}",
+         )
+ 
+-    # Facebook-αªÅ αª¬αª╛αªáαª╛αªô
++    # Worker delivery queue-αªñαºç αª¬αª╛αªáαª╛αªô
+     try:
+-        await _send_confirmed_event(client, pending, background_tasks)
++        await _queue_confirmed_event(client, pending, db)
++    except HTTPException:
++        await db.rollback()
++        raise
+     except Exception as e:
+         await db.rollback()
+-        logger.error(f"[{client.name}] Confirm send failed ({payload.order_id}): {e}")
++        logger.error(f"[{client.name}] Confirm queue failed ({payload.order_id}): {e}")
+         raise HTTPException(
+-            status_code=502,
+-            detail=f"Facebook-αªÅ αª¬αª╛αªáαª╛αªñαºç αª╕αª«αª╕αºìαª»αª╛: {e}",
++            status_code=500,
++            detail=f"Purchase event queue αªòαª░αªñαºç αª╕αª«αª╕αºìαª»αª╛: {e}",
+         )
+ 
+     # Status αªåαª¬αªíαºçαªƒ
+@@ -215,12 +181,12 @@ async def confirm_event(
+     pending.confirmed_at = datetime.now(timezone.utc)
+     await db.commit()
+ 
+-    logger.info(f"[{client.name}] Γ£à Order confirmed & sent: {payload.order_id}")
++    logger.info(f"[{client.name}] Order confirmed & queued: {payload.order_id}")
+ 
+     return ConfirmResponse(
+         status="success",
+         order_id=payload.order_id,
+-        message="Γ£à Purchase event Facebook-αªÅ αª╕αª½αª▓αª¡αª╛αª¼αºç αª¬αª╛αªáαª╛αª¿αºï αª╣αª»αª╝αºçαª¢αºç!",
++        message="Purchase event delivery queue-αªñαºç αª░αª╛αªûαª╛ αª╣αª»αª╝αºçαª¢αºç.",
+     )
+ 
+ 
+@@ -233,13 +199,11 @@ async def confirm_event(
+ )
+ async def bulk_confirm_events(
+     payload: BulkConfirmRequest,
+-    background_tasks: BackgroundTasks,
+     client: CachedClient = Depends(get_current_client),
+     db: AsyncSession = Depends(get_db),
+ ):
+     """
+-    αªÅαªòαª╛αªºαª┐αªò pending Purchase event αªÅαªòαª╕αª╛αªÑαºç αªòαª¿αª½αª╛αª░αºìαª« αªòαª░αºçαÑñ
+-    αª¬αºìαª░αªñαª┐αªƒαª┐ order αªåαª▓αª╛αªªαª╛αª¡αª╛αª¼αºç Facebook-αªÅ αª¬αª╛αªáαª╛αª¿αºï αª╣αª»αª╝αÑñ
++    αªÅαªòαª╛αªºαª┐αªò pending Purchase event αªÅαªòαª╕αª╛αªÑαºç αªòαª¿αª½αª╛αª░αºìαª« αªòαª░αºç delivery queue-αªñαºç αª░αª╛αªûαºçαÑñ
+     """
+     if not payload.order_ids:
+         raise HTTPException(status_code=400, detail="order_ids αªûαª╛αª▓αª┐!")
+@@ -266,15 +230,19 @@ async def bulk_confirm_events(
+ 
+     for pending in pending_events:
+         try:
+-            await _send_confirmed_event(client, pending, background_tasks)
++            await _queue_confirmed_event(client, pending, db)
+             pending.status = "confirmed"
+             pending.confirmed_at = datetime.now(timezone.utc)
+             confirmed += 1
+-            details.append({"order_id": pending.order_id, "status": "confirmed"})
+-        except Exception as e:
++            details.append({"order_id": pending.order_id, "status": "queued"})
++        except HTTPException as e:
+             failed += 1
+-            details.append({"order_id": pending.order_id, "status": "failed", "error": str(e)})
+-            logger.error(f"[{client.name}] Bulk confirm failed ({pending.order_id}): {e}")
++            details.append({"order_id": pending.order_id, "status": "failed", "error": str(e.detail)})
++            logger.error(f"[{client.name}] Bulk confirm queue rejected ({pending.order_id}): {e.detail}")
++        except Exception as e:
++            await db.rollback()
++            logger.exception(f"[{client.name}] Bulk confirm queue failed ({pending.order_id})")
++            raise HTTPException(status_code=500, detail=f"Bulk confirm queue failed: {e}") from None
+ 
+     # Not found orders
+     for oid in payload.order_ids:
+@@ -284,7 +252,7 @@ async def bulk_confirm_events(
+ 
+     await db.commit()
+ 
+-    logger.info(f"[{client.name}] Bulk confirm: {confirmed} confirmed, {failed} failed")
++    logger.info(f"[{client.name}] Bulk confirm queued: {confirmed} confirmed, {failed} failed")
+ 
+     return BulkConfirmResponse(
+         status="success",
+diff --git a/app/routers/tracker.py b/app/routers/tracker.py
+index c6b428a..124f069 100644
+--- a/app/routers/tracker.py
++++ b/app/routers/tracker.py
+@@ -3,7 +3,7 @@ Tracker Router ΓÇö Custom JavaScript Pixel αª╕αª╛αª░αºìαª¡ αªô αªçαª¡αºçαª¿αºì
+ 
+ Endpoints:
+   GET  /t.js?key=API_KEY  ΓåÆ αªíαª╛αª»αª╝αª¿αª╛αª«αª┐αªò JS αªƒαºìαª░αºìαª»αª╛αªòαª╛αª░ αª╕αª╛αª░αºìαª¡ αªòαª░αºç
+-  POST /c?key=API_KEY     ΓåÆ αª¼αºìαª░αª╛αªëαª£αª╛αª░ αªÑαºçαªòαºç αªçαª¡αºçαª¿αºìαªƒ αª░αª┐αª╕αª┐αª¡ αªòαª░αºç αªô Facebook-αªÅ αª¬αª╛αªáαª╛αª»αª╝
++  POST /c?key=API_KEY     ΓåÆ αª¼αºìαª░αª╛αªëαª£αª╛αª░ αªÑαºçαªòαºç αªçαª¡αºçαª¿αºìαªƒ αª░αª┐αª╕αª┐αª¡ αªòαª░αºç outbox queue-αªñαºç αª░αª╛αªûαºç
+ 
+ αªÅαª¿αºìαªíαª¬αª»αª╝αºçαª¿αºìαªƒαºçαª░ αª¿αª╛αª« αª¢αºïαªƒ αªô αª£αºçαª¿αºçαª░αª┐αªò αª░αª╛αªûαª╛ αª╣αª»αª╝αºçαª¢αºç αª»αª╛αªñαºç αªàαºìαª»αª╛αªí αª¼αºìαª▓αªòαª╛αª░ detect αªòαª░αªñαºç αª¿αª╛ αª¬αª╛αª░αºçαÑñ
+ """
+@@ -15,25 +15,21 @@ from datetime import datetime, timezone
+ from urllib.parse import urlparse, parse_qs
+ from user_agents import parse as parse_ua
+ 
+-from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks, Query
++from fastapi import APIRouter, Depends, HTTPException, Request, Query
+ from fastapi.responses import Response, JSONResponse
+ from sqlalchemy.dialects.postgresql import insert as pg_insert
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+-from app.database import get_db, AsyncSessionLocal
++from app.database import get_db
+ from app.dependencies import get_current_client, CachedClient, _client_cache, _snapshot, CACHE_TTL
+ from app.models.client import Client
+ from app.models.event_dedup import EventDedup
+-from app.models.event_log import EventLog
+ from app.schemas.event import EventData, UserData, CustomData
+ from app.services.bot_detector import is_bot
+-from app.services.capi_service import send_to_facebook
+-from app.services.tiktok_service import send_to_tiktok
+ from app.services.geoip_service import get_location_data
+-from app.services.ga4_service import send_to_ga4
+-from app.services.retry_service import save_failed_event
++from app.services.event_worker import enqueue_events
+ from app.services.tracker_sdk import generate_tracker_js
+-from app.services.usage_service import check_and_reserve_usage, rollback_usage_reservation
++from app.services.usage_service import check_and_reserve_usage
+ 
+ from sqlalchemy import select
+ 
+@@ -114,59 +110,15 @@ async def serve_tracker_js(
+ # POST /c ΓÇö Collect Endpoint (αª¼αºìαª░αª╛αªëαª£αª╛αª░ αªÑαºçαªòαºç αªçαª¡αºçαª¿αºìαªƒ αª░αª┐αª╕αª┐αª¡)
+ # ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+ 
+-async def _save_success_logs(client_id: int, events_data: list, fb_result: dict | None, client_ip: str | None):
+-    """Background task: αª╕αª½αª▓ αªçαª¡αºçαª¿αºìαªƒαºçαª░ αª▓αªù αª╕αºçαª¡ αªòαª░αºçαÑñ"""
+-    try:
+-        async with AsyncSessionLocal() as db:
+-            log_entries = [
+-                EventLog(
+-                    client_id=client_id,
+-                    event_name=event.get("event_name", "unknown"),
+-                    event_id=event.get("event_id"),
+-                    event_count=1,
+-                    status="success",
+-                    fb_response=json.dumps(fb_result) if fb_result else None,
+-                    ip_address=client_ip,
+-                    emq_score=event.get("emq_score"),
+-                )
+-                for event in events_data
+-            ]
+-            db.add_all(log_entries)
+-            await db.commit()
+-    except Exception as e:
+-        logger.error(f"Tracker success log error: {e}")
+-
+-
+-async def _save_failure_logs(client_id: int, events_data: list, error_msg: str, client_ip: str | None):
+-    """Background task: αª½αºçαªçαª▓ αªçαª¡αºçαª¿αºìαªƒαºçαª░ αª▓αªù αªô retry queue αª╕αºçαª¡ αªòαª░αºçαÑñ"""
+-    try:
+-        async with AsyncSessionLocal() as db:
+-            event_names = ", ".join(sorted({e.get("event_name", "unknown") for e in events_data}))
+-            log_entry = EventLog(
+-                client_id=client_id,
+-                event_name=event_names,
+-                event_count=len(events_data),
+-                status="failed",
+-                error_message=error_msg[:500],
+-                ip_address=client_ip,
+-            )
+-            db.add(log_entry)
+-            await db.commit()
+-            await save_failed_event(db, client_id, events_data, error_msg)
+-    except Exception as e:
+-        logger.error(f"Tracker failure log error: {e}")
+-
+-
+ @router.post("/c", include_in_schema=False)
+ async def collect_event(
+     request: Request,
+-    background_tasks: BackgroundTasks,
+     key: str = Query(..., description="Client API Key"),
+     db: AsyncSession = Depends(get_db),
+ ):
+     """
+     αª¼αºìαª░αª╛αªëαª£αª╛αª░αºçαª░ αªƒαºìαª░αºìαª»αª╛αªòαª╛αª░ JS αªÑαºçαªòαºç αªçαª¡αºçαª¿αºìαªƒ αª░αª┐αª╕αª┐αª¡ αªòαª░αºçαÑñ
+-    Bot detection αªòαª░αºç, dedup αªÜαºçαªò αªòαª░αºç, αªñαª╛αª░αª¬αª░ Facebook CAPI-αªñαºç αª½αª░αªôαª»αª╝αª╛αª░αºìαªí αªòαª░αºçαÑñ
++    Bot detection αªòαª░αºç, dedup αªÜαºçαªò αªòαª░αºç, αªñαª╛αª░αª¬αª░ durable outbox queue-αªñαºç αª░αª╛αªûαºçαÑñ
+     """
+     # ΓöÇΓöÇΓöÇ Parse body (Beacon API sends as blob) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+     try:
+@@ -294,30 +246,20 @@ async def collect_event(
+     if not parsed_events:
+         return {"status": "ok", "events_received": 0, "message": "no valid events"}
+ 
+-    # ΓöÇΓöÇΓöÇ Usage Limit ΓÇö Atomic Check + Reserve ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-    reserved_keys = {}
+-    try:
+-        reserved_keys = await check_and_reserve_usage(db, client, len(parsed_events))
+-    except HTTPException:
+-        raise
+-    except Exception as e:
+-        logger.warning(f"[{client.name}] Usage check error (non-fatal): {e}")
+-
+-    # ΓöÇΓöÇΓöÇ Dedup ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++    # ΓöÇΓöÇΓöÇ Dedup + Usage Reserve + Outbox Enqueue ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+     unique_events = []
+-    candidate_ids = []
+-    seen_ids = set()
+-
+-    for event in parsed_events:
+-        if not event.event_id or event.event_id in seen_ids:
+-            if not event.event_id:
+-                unique_events.append(event)
+-            continue
+-        seen_ids.add(event.event_id)
+-        candidate_ids.append(event.event_id)
++    try:
++        candidate_ids = []
++        seen_ids = set()
++        for event in parsed_events:
++            if not event.event_id or event.event_id in seen_ids:
++                if not event.event_id:
++                    unique_events.append(event)
++                continue
++            seen_ids.add(event.event_id)
++            candidate_ids.append(event.event_id)
+ 
+-    if candidate_ids:
+-        try:
++        if candidate_ids:
+             rows = [{"client_id": client.id, "event_id": eid} for eid in candidate_ids]
+             stmt = (
+                 pg_insert(EventDedup)
+@@ -327,66 +269,49 @@ async def collect_event(
+             )
+             result = await db.execute(stmt)
+             reserved_ids = set(result.scalars().all())
+-            await db.commit()
+-
++            accepted_ids = set()
+             for event in parsed_events:
+-                if event.event_id and event.event_id in reserved_ids:
++                if event.event_id and event.event_id in reserved_ids and event.event_id not in accepted_ids:
++                    accepted_ids.add(event.event_id)
+                     unique_events.append(event)
+-        except Exception:
+-            await db.rollback()
+-            # On dedup failure, send all events (better than losing data)
+-            unique_events = parsed_events
+-
+-    if not unique_events:
+-        return {"status": "ok", "events_received": 0, "message": "deduplicated"}
+ 
+-    # ΓöÇΓöÇΓöÇ Send to Facebook ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-    events_as_dicts = [event.model_dump(exclude_none=True) for event in unique_events]
+-
+-    try:
+-        result = await send_to_facebook(client, unique_events)
++        if not unique_events:
++            await db.commit()
++            response_data = {"status": "ok", "events_received": 0, "message": "deduplicated"}
++            resp = JSONResponse(content=response_data)
++        else:
++            reserved_keys = await check_and_reserve_usage(db, client, len(unique_events))
++            events_as_dicts = [event.model_dump(exclude_none=True) for event in unique_events]
++            await enqueue_events(
++                db,
++                client_id=client.id,
++                events_data=events_as_dicts,
++                request_context={
++                    "ip_address": client_ip,
++                    "user_agent": user_agent,
++                    "cookies": {
++                        key: value
++                        for key, value in request.cookies.items()
++                        if key in {"_ga", "_fbp", "_fbc"}
++                    },
++                },
++                usage_reserved=reserved_keys,
++            )
++            await db.commit()
++            response_data = {"status": "ok", "events_received": len(unique_events), "message": "queued"}
++            resp = JSONResponse(content=response_data)
++    except HTTPException:
++        await db.rollback()
++        raise
+     except Exception as e:
+-        error_msg = str(e)
+-        logger.error(f"[{client.name}] Tracker ΓåÆ FB Error: {error_msg}")
+-        # Usage reservation rollback ΓÇö αª½αºçαªçαª▓ αª╣αªôαª»αª╝αª╛ αªçαª¡αºçαª¿αºìαªƒ count αª╣αª¼αºç αª¿αª╛
+-        try:
+-            async with AsyncSessionLocal() as rollback_db:
+-                await rollback_usage_reservation(rollback_db, client, reserved_keys)
+-        except Exception as rb_err:
+-            logger.warning(f"[{client.name}] Usage rollback failed (non-fatal): {rb_err}")
+-        await _save_failure_logs(client.id, events_as_dicts, error_msg, client_ip)
+-        # Return 200 to browser (don't expose server errors to frontend)
+-        return {"status": "ok", "events_received": len(unique_events), "message": "queued for retry"}
+-
+-    # Usage counters already incremented by check_and_reserve_usage()
+-
+-    # ΓöÇΓöÇΓöÇ Success Logs ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-    background_tasks.add_task(_save_success_logs, client.id, events_as_dicts, result, client_ip)
+-
+-    # ΓöÇΓöÇΓöÇ TikTok CAPI (parallel, non-blocking) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-    if client.tiktok_pixel_id and client.tiktok_access_token:
+-        background_tasks.add_task(send_to_tiktok, client, unique_events)
+-
+-    # ΓöÇΓöÇΓöÇ GA4 Server-Side (parallel, non-blocking) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-    if client.ga4_measurement_id and client.ga4_api_secret:
+-        ga4_events = [evt.model_dump(exclude_none=True) for evt in unique_events]
+-        background_tasks.add_task(
+-            send_to_ga4,
+-            events=ga4_events,
+-            measurement_id=client.ga4_measurement_id,
+-            api_secret=client.ga4_api_secret,
+-            cookies=request.cookies,
+-            ip_address=client_ip,
+-            user_agent=user_agent
+-        )
++        await db.rollback()
++        logger.exception(f"[{client.name}] Tracker enqueue failed: {e}")
++        raise HTTPException(status_code=500, detail="Failed to queue tracker event") from None
+ 
+     # ΓöÇΓöÇΓöÇ Cookie Life Extension (Safari ITP Bypass) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+     # Server-side Set-Cookie αªçαª╕αºìαª»αºü αªòαª░αºç _fbp αªô _fbc αªòαºüαªòαª┐αª░ αª«αºçαª»αª╝αª╛αªª αº¼ αª«αª╛αª╕ αª¬αª░αºìαª»αª¿αºìαªñ αª¼αª╛αº£αª╛αª¿αºï αª╣αª»αª╝αÑñ
+     # Safari ITP αª¼αºìαª░αª╛αªëαª£αª╛αª░αºç JavaScript αªªαª┐αª»αª╝αºç αª╕αºçαªƒ αªòαª░αª╛ αªòαºüαªòαª┐ αºº-αº¡ αªªαª┐αª¿αºç expire αª╣αª»αª╝, αªòαª┐αª¿αºìαªñαºü
+     # αª╕αª╛αª░αºìαª¡αª╛αª░ (HTTP header) αªÑαºçαªòαºç Set-Cookie αªòαª░αª▓αºç ITP bypass αª╣αª»αª╝!
+-    response_data = {"status": "ok", "events_received": len(unique_events), "message": "sent"}
+-    resp = JSONResponse(content=response_data)
+-
+     # αª¼αºìαª░αª╛αªëαª£αª╛αª░ αªÑαºçαªòαºç αª¬αª╛αªáαª╛αª¿αºï _fbp/_fbc αª¡αºìαª»αª╛αª▓αºü αªûαºïαªüαª£αºï (body-αªñαºç αªÑαª╛αªòαªñαºç αª¬αª╛αª░αºç)
+     first_event = body.get("data", [{}])[0] if body.get("data") else {}
+     ud = first_event.get("user_data", {})
+diff --git a/app/routers/webhook.py b/app/routers/webhook.py
+index a2219e6..7c50e15 100644
+--- a/app/routers/webhook.py
++++ b/app/routers/webhook.py
+@@ -2,7 +2,8 @@
+ WooCommerce Webhook Router
+ ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ WordPress-αªÅαª░ αª¼αª┐αª▓αºìαªƒ-αªçαª¿ Webhook αª╕αª┐αª╕αºìαªƒαºçαª« αªªαª┐αª»αª╝αºç αªàαª░αºìαªíαª╛αª░ αª╕αºìαªƒαºìαª»αª╛αªƒαª╛αª╕ αªÜαºçαª₧αºìαª£ αª░αª┐αª╕αª┐αª¡ αªòαª░αºçαÑñ
+-αª¬αºìαª▓αª╛αªùαªçαª¿ αª¼αºìαª»αª¼αª╣αª╛αª░ αª¿αª╛ αªòαª░αª▓αºçαªô αªÅαªç endpoint αªªαª┐αª»αª╝αºç Deferred Purchase αªòαª¿αª½αª╛αª░αºìαª« αªòαª░αª╛ αª»αª╛αª»αª╝αÑñ
++αª¬αºìαª▓αª╛αªùαªçαª¿ αª¼αºìαª»αª¼αª╣αª╛αª░ αª¿αª╛ αªòαª░αª▓αºçαªô αªÅαªç endpoint αªªαª┐αª»αª╝αºç Deferred Purchase αªòαª¿αª½αª╛αª░αºìαª« αªòαª░αºç
++durable outbox queue-αªñαºç αª¬αª╛αªáαª╛αª¿αºï αª»αª╛αª»αª╝αÑñ
+ 
+ Endpoints:
+   POST /api/v1/webhook/woocommerce  ΓÇö WooCommerce Webhook αª░αª┐αª╕αª┐αª¡ αªòαª░αºç
+@@ -16,17 +17,16 @@ import logging
+ import os
+ from datetime import datetime, timezone
+ 
+-from fastapi import APIRouter, Request, HTTPException, BackgroundTasks, Depends
++from fastapi import APIRouter, Request, HTTPException, Depends
+ from sqlalchemy import select, and_
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+-from app.database import get_db, AsyncSessionLocal
++from app.database import get_db
+ from app.models.client import Client
+ from app.models.pending_event import PendingEvent
+-from app.models.event_log import EventLog
+ from app.schemas.event import EventData
+-from app.services.capi_service import send_to_facebook
+-from app.services.usage_service import increment_usage_counters_db
++from app.services.event_worker import enqueue_events
++from app.services.usage_service import check_and_reserve_usage
+ from app.dependencies import CachedClient, _snapshot
+ 
+ logger = logging.getLogger(__name__)
+@@ -61,7 +61,6 @@ async def _get_client_by_api_key(api_key: str, db: AsyncSession):
+ )
+ async def woocommerce_webhook(
+     request: Request,
+-    background_tasks: BackgroundTasks,
+     db: AsyncSession = Depends(get_db),
+ ):
+     """
+@@ -149,52 +148,46 @@ async def woocommerce_webhook(
+             "message": f"No pending Purchase event found for order #{order_id}",
+         }
+ 
+-    # ΓöÇΓöÇΓöÇ Send to Facebook ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++    # ΓöÇΓöÇΓöÇ Queue confirmed purchase for worker delivery ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+     event_dict = pending.event_data.copy()
+     event_dict["event_time"] = int(datetime.now(timezone.utc).timestamp())
+ 
+     try:
+         event = EventData(**event_dict)
+-        fb_result = await send_to_facebook(client, [event])
++        events_data = [event.model_dump(exclude_none=True)]
++        reserved_keys = await check_and_reserve_usage(db, client, 1)
++        user_data = event_dict.get("user_data", {}) or {}
++        await enqueue_events(
++            db,
++            client_id=client.id,
++            events_data=events_data,
++            request_context={
++                "ip_address": user_data.get("client_ip_address"),
++                "user_agent": user_data.get("client_user_agent") or "",
++                "cookies": {},
++            },
++            usage_reserved=reserved_keys,
++        )
++    except HTTPException:
++        await db.rollback()
++        raise
+     except Exception as e:
+         await db.rollback()
+-        logger.error(f"[{client.name}] Webhook confirm failed (order #{order_id}): {e}")
++        logger.error(f"[{client.name}] Webhook confirm queue failed (order #{order_id}): {e}")
+         raise HTTPException(
+-            status_code=502,
+-            detail=f"Facebook send failed: {e}",
+-        )
++            status_code=500,
++            detail=f"Purchase event queue failed: {e}",
++        ) from None
+ 
+     # ΓöÇΓöÇΓöÇ Update pending status ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+     pending.status = "confirmed"
+     pending.confirmed_at = datetime.now(timezone.utc)
+     await db.commit()
+ 
+-    # ΓöÇΓöÇΓöÇ Background: Log + Usage ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-    async def _log_and_count():
+-        try:
+-            async with AsyncSessionLocal() as log_db:
+-                log_entry = EventLog(
+-                    client_id=client.id,
+-                    event_name=event_dict.get("event_name", "Purchase"),
+-                    event_id=event_dict.get("event_id"),
+-                    event_count=1,
+-                    status="success",
+-                    fb_response=json.dumps(fb_result) if fb_result else None,
+-                    ip_address=event_dict.get("user_data", {}).get("client_ip_address"),
+-                )
+-                log_db.add(log_entry)
+-                await log_db.commit()
+-            async with AsyncSessionLocal() as usage_db:
+-                await increment_usage_counters_db(usage_db, client, 1)
+-        except Exception as e:
+-            logger.error(f"Webhook log/usage error: {e}")
+-
+-    background_tasks.add_task(_log_and_count)
+-
+-    logger.info(f"[{client.name}] Γ£à Webhook confirmed order #{order_id} ΓåÆ Facebook")
++    logger.info(f"[{client.name}] Webhook confirmed order #{order_id} queued for delivery")
+ 
+     return {
+         "status": "success",
+         "order_id": str(order_id),
+-        "message": "Purchase event confirmed and sent to Facebook!",
++        "message": "Purchase event confirmed and queued for delivery!",
+     }
+diff --git a/app/schemas/event.py b/app/schemas/event.py
+index efce4ab..64d6521 100644
+--- a/app/schemas/event.py
++++ b/app/schemas/event.py
+@@ -43,6 +43,8 @@ class UserData(BaseModel):
+     client_user_agent: Optional[str] = None
+     fbc: Optional[str] = None             # Facebook click ID (_fbc cookie)
+     fbp: Optional[str] = None             # Facebook browser ID (_fbp cookie)
++    ttp: Optional[str] = None             # TikTok browser ID (_ttp cookie)
++    ttclid: Optional[str] = None          # TikTok click ID
+ 
+     @model_validator(mode='before')
+     @classmethod
+diff --git a/app/services/capi_service.py b/app/services/capi_service.py
+index 4d82ec3..162d8e1 100644
+--- a/app/services/capi_service.py
++++ b/app/services/capi_service.py
+@@ -8,8 +8,8 @@ from app.security import decrypt_token
+ logger = logging.getLogger(__name__)
+ 
+ FACEBOOK_API_VERSION = os.getenv("FACEBOOK_API_VERSION", "v21.0")
+-HTTP_MAX_CONNECTIONS = int(os.getenv("HTTP_MAX_CONNECTIONS", "100"))
+-HTTP_MAX_KEEPALIVE_CONNECTIONS = int(os.getenv("HTTP_MAX_KEEPALIVE_CONNECTIONS", "40"))
++HTTP_MAX_CONNECTIONS = int(os.getenv("HTTP_MAX_CONNECTIONS", "20"))
++HTTP_MAX_KEEPALIVE_CONNECTIONS = int(os.getenv("HTTP_MAX_KEEPALIVE_CONNECTIONS", "10"))
+ HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "15.0"))
+ 
+ # ΓöÇΓöÇΓöÇ Global Persistent HTTP Client ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+diff --git a/app/services/cleanup_service.py b/app/services/cleanup_service.py
+index c14070a..c394974 100644
+--- a/app/services/cleanup_service.py
++++ b/app/services/cleanup_service.py
+@@ -5,6 +5,7 @@ from sqlalchemy import delete
+ from app.database import AsyncSessionLocal
+ from app.models.event_log import EventLog
+ from app.models.event_dedup import EventDedup
++from app.models.event_outbox import EventOutbox
+ from app.models.failed_event import FailedEvent
+ from app.models.usage_counter import UsageCounter
+ 
+@@ -13,7 +14,8 @@ logger = logging.getLogger(__name__)
+ async def auto_cleanup_database():
+     """
+     Background task to periodically delete old records.
+-    Cleans: EventLogs (30d), EventDedup (30d), FailedEvents dead/success (30d), UsageCounters (7d).
++    Cleans: EventLogs (30d), EventDedup (30d), EventOutbox sent/dead (30d),
++    FailedEvents dead/success (30d), UsageCounters (400d).
+     Runs once every 24 hours.
+     """
+     retention_days = 30
+@@ -53,6 +55,18 @@ async def auto_cleanup_database():
+                     logger.warning(f"Could not clean FailedEvents: {e}")
+                     failed_deleted = 0
+ 
++                # Delete old outbox rows that are no longer actionable.
++                try:
++                    stmt_outbox = delete(EventOutbox).where(
++                        EventOutbox.status.in_(["sent", "dead"]),
++                        EventOutbox.created_at < cutoff_date,
++                    )
++                    result_outbox = await db.execute(stmt_outbox)
++                    outbox_deleted = result_outbox.rowcount
++                except Exception as e:
++                    logger.warning(f"Could not clean EventOutbox: {e}")
++                    outbox_deleted = 0
++
+                 # Delete old UsageCounters (rate + daily windows older than 7 days)
+                 try:
+                     stmt_usage = delete(UsageCounter).where(
+@@ -69,7 +83,7 @@ async def auto_cleanup_database():
+             logger.info(
+                 f"Γ£à Cleanup complete: Deleted {logs_deleted} logs, "
+                 f"{dedup_deleted} dedup, {failed_deleted} failed events, "
+-                f"{usage_deleted} usage counters "
++                f"{outbox_deleted} outbox rows, {usage_deleted} usage counters "
+                 f"(retention: {retention_days}d logs, {usage_retention_days}d counters)."
+             )
+             
+diff --git a/app/services/event_worker.py b/app/services/event_worker.py
+index 78b975e..17532c0 100644
+--- a/app/services/event_worker.py
++++ b/app/services/event_worker.py
+@@ -28,8 +28,8 @@ from app.services.webhook_service import send_webhook
+ logger = logging.getLogger(__name__)
+ 
+ WORKER_ID = os.getenv("EVENT_WORKER_ID") or f"{socket.gethostname()}:{os.getpid()}"
+-WORKER_BATCH_SIZE = int(os.getenv("EVENT_WORKER_BATCH_SIZE", "25"))
+-WORKER_POLL_SECONDS = float(os.getenv("EVENT_WORKER_POLL_SECONDS", "1.0"))
++WORKER_BATCH_SIZE = int(os.getenv("EVENT_WORKER_BATCH_SIZE", "5"))
++WORKER_POLL_SECONDS = float(os.getenv("EVENT_WORKER_POLL_SECONDS", "3.0"))
+ WORKER_STALE_LOCK_SECONDS = int(os.getenv("EVENT_WORKER_STALE_LOCK_SECONDS", "600"))
+ OUTBOX_MAX_ATTEMPTS = int(os.getenv("EVENT_OUTBOX_MAX_ATTEMPTS", "8"))
+ RETRY_DELAYS = [30, 120, 600, 1800, 3600, 7200, 14400, 28800]
+@@ -48,6 +48,30 @@ def _event_names(events: list[EventData]) -> str:
+     return ", ".join(sorted({event.event_name for event in events}))
+ 
+ 
++async def _log_secondary_failure(
++    db,
++    client_id: int,
++    channel: str,
++    event_names: str,
++    event_count: int,
++    error_message: str,
++    ip_address: str | None,
++) -> None:
++    try:
++        db.add(EventLog(
++            client_id=client_id,
++            event_name=f"{channel}:{event_names}"[:255],
++            event_count=event_count,
++            status="failed",
++            error_message=str(error_message)[:500],
++            ip_address=ip_address,
++        ))
++        await db.commit()
++    except Exception as log_error:
++        await db.rollback()
++        logger.warning(f"Secondary failure logging failed: {log_error}")
++
++
+ async def enqueue_events(
+     db,
+     client_id: int,
+@@ -157,13 +181,32 @@ async def process_outbox_row(row_id: int) -> None:
+ 
+             if client.tiktok_pixel_id and client.tiktok_access_token:
+                 try:
+-                    await send_to_tiktok(client, events)
++                    tiktok_result = await send_to_tiktok(client, events)
++                    if not tiktok_result or tiktok_result.get("code") not in (0, None):
++                        await _log_secondary_failure(
++                            db,
++                            client.id,
++                            "TikTok",
++                            event_names,
++                            len(events),
++                            tiktok_result or "TikTok send failed",
++                            context.get("ip_address"),
++                        )
+                 except Exception as secondary_error:
+                     logger.warning(f"[{client.name}] TikTok secondary send failed: {secondary_error}")
++                    await _log_secondary_failure(
++                        db,
++                        client.id,
++                        "TikTok",
++                        event_names,
++                        len(events),
++                        str(secondary_error),
++                        context.get("ip_address"),
++                    )
+ 
+             if client.ga4_measurement_id and client.ga4_api_secret:
+                 try:
+-                    await send_to_ga4(
++                    ga4_result = await send_to_ga4(
+                         events=events_data,
+                         measurement_id=client.ga4_measurement_id,
+                         api_secret=client.ga4_api_secret,
+@@ -171,8 +214,27 @@ async def process_outbox_row(row_id: int) -> None:
+                         ip_address=context.get("ip_address"),
+                         user_agent=context.get("user_agent") or "",
+                     )
++                    if ga4_result and not ga4_result.get("ok", True):
++                        await _log_secondary_failure(
++                            db,
++                            client.id,
++                            "GA4",
++                            event_names,
++                            len(events),
++                            ga4_result.get("error") or ga4_result,
++                            context.get("ip_address"),
++                        )
+                 except Exception as secondary_error:
+                     logger.warning(f"[{client.name}] GA4 secondary send failed: {secondary_error}")
++                    await _log_secondary_failure(
++                        db,
++                        client.id,
++                        "GA4",
++                        event_names,
++                        len(events),
++                        str(secondary_error),
++                        context.get("ip_address"),
++                    )
+ 
+             if client.webhook_url:
+                 for event_data in events_data:
+@@ -189,6 +251,15 @@ async def process_outbox_row(row_id: int) -> None:
+                         )
+                     except Exception as secondary_error:
+                         logger.warning(f"[{client.name}] Outbound webhook failed: {secondary_error}")
++                        await _log_secondary_failure(
++                            db,
++                            client.id,
++                            "Webhook",
++                            event_data.get("event_name") or "unknown",
++                            1,
++                            str(secondary_error),
++                            context.get("ip_address"),
++                        )
+ 
+             logger.info(f"[{client.name}] Outbox row {row.id} sent ({len(events)} events).")
+ 
+@@ -237,12 +308,16 @@ async def process_event_outbox_forever() -> None:
+ 
+ 
+ if __name__ == "__main__":
++    from app.services.cleanup_service import auto_cleanup_database
++    from app.services.expiry_service import expire_old_pending_events
+     from app.services.retry_service import retry_failed_events
+ 
+     async def main() -> None:
+         await asyncio.gather(
+             process_event_outbox_forever(),
+             retry_failed_events(),
++            auto_cleanup_database(),
++            expire_old_pending_events(),
+         )
+ 
+     asyncio.run(main())
+diff --git a/app/services/ga4_service.py b/app/services/ga4_service.py
+index c766666..29106e3 100644
+--- a/app/services/ga4_service.py
++++ b/app/services/ga4_service.py
+@@ -102,5 +102,8 @@ async def send_to_ga4(events: List[Dict[str, Any]], measurement_id: str, api_sec
+         # GA4 Measurement Protocol always returns 2xx even if invalid, unless request is malformed
+         if response.status_code >= 400:
+             logger.error(f"GA4 error: {response.text}")
++            return {"ok": False, "status_code": response.status_code, "error": response.text[:500]}
++        return {"ok": True, "status_code": response.status_code}
+     except Exception as e:
+         logger.error(f"Failed to send to GA4: {e}")
++        return {"ok": False, "error": str(e)}
+diff --git a/app/services/tiktok_service.py b/app/services/tiktok_service.py
+index 5e88f64..c9d97b8 100644
+--- a/app/services/tiktok_service.py
++++ b/app/services/tiktok_service.py
+@@ -20,12 +20,12 @@ TIKTOK_API_URL = "https://business-api.tiktok.com/open_api/v1.3/event/track/"
+ def _map_event_name(fb_event_name: str) -> str:
+     """Facebook event name αªòαºç TikTok-αªÅαª░ αª╕αª«αªñαºüαª▓αºìαª» αªçαª¡αºçαª¿αºìαªƒαºç αªòαª¿αª¡αª╛αª░αºìαªƒ αªòαª░αºçαÑñ"""
+     mapping = {
+-        "PageView": "ViewContent",
++        "PageView": "PageView",
+         "ViewContent": "ViewContent",
+         "AddToCart": "AddToCart",
+         "InitiateCheckout": "InitiateCheckout",
+         "AddPaymentInfo": "AddPaymentInfo",
+-        "Purchase": "PlaceAnOrder",
++        "Purchase": "Purchase",
+         "CompletePayment": "CompletePayment",
+         "Lead": "SubmitForm",
+         "Contact": "Contact",
+@@ -64,9 +64,10 @@ def _build_tiktok_payload(client, events: List[EventData]) -> dict:
+                 user["phone_number"] = ud.ph[0] if ud.ph else None
+             if ud.external_id:
+                 user["external_id"] = ud.external_id[0] if ud.external_id else None
+-
+-            # TikTok click ID (ttclid) from fbc if available
+-            # Note: TikTok uses ttclid, not fbc. But we pass what we have.
++            if ud.ttp:
++                user["ttp"] = ud.ttp
++            if ud.ttclid:
++                context["ad"] = {"callback": ud.ttclid}
+ 
+             context["user"] = user
+             tt_event["context"] = context
+diff --git a/app/services/tracker_sdk.py b/app/services/tracker_sdk.py
+index 38c555b..2e2dc02 100644
+--- a/app/services/tracker_sdk.py
++++ b/app/services/tracker_sdk.py
+@@ -30,6 +30,7 @@ var E="{gateway_origin}/c";
+ var U={{}};  // user identity store
+ var Q=[];   // event queue (before DOM ready)
+ var R=false; // ready flag
++persistTtclid();
+ 
+ /* ΓöÇΓöÇΓöÇ Helpers ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */
+ 
+@@ -47,6 +48,16 @@ function gc(n){{
+   return m?decodeURIComponent(m[1]):null;
+ }}
+ 
++function qp(n){{
++  try{{return new URLSearchParams(location.search).get(n)||'';}}
++  catch(e){{return '';}}
++}}
++
++function persistTtclid(){{
++  var id=qp('ttclid');
++  if(id)document.cookie='_ttclid='+encodeURIComponent(id)+'; path=/; max-age='+(90*24*60*60)+'; SameSite=Lax';
++}}
++
+ // SHA-256 hash (returns promise)
+ function sha(s){{
+   if(!s)return Promise.resolve(null);
+@@ -70,12 +81,16 @@ function hashArr(arr){{
+ function send(eventName, customData, userData){{
+   var fbc=gc('_fbc');
+   var fbp=gc('_fbp');
++  var ttp=gc('_ttp');
++  var ttclid=qp('ttclid')||gc('_ttclid');
+ 
+   // Build user_data
+   var ud={{}};
+   ud.client_user_agent=navigator.userAgent;
+   if(fbc)ud.fbc=fbc;
+   if(fbp)ud.fbp=fbp;
++  if(ttp)ud.ttp=ttp;
++  if(ttclid)ud.ttclid=ttclid;
+ 
+   // Merge stored user identity
+   var mergedUser=Object.assign({{}},U,userData||{{}});
+diff --git a/capi-gateway-updated.zip b/capi-gateway-updated.zip
+index 0a681c8..b947f3e 100644
+Binary files a/capi-gateway-updated.zip and b/capi-gateway-updated.zip differ
+diff --git a/wordpress-plugin/capi-gateway.zip b/wordpress-plugin/capi-gateway.zip
+index 0a681c8..b947f3e 100644
+Binary files a/wordpress-plugin/capi-gateway.zip and b/wordpress-plugin/capi-gateway.zip differ
+diff --git a/wordpress-plugin/capi-gateway/includes/frontend-tracking.php b/wordpress-plugin/capi-gateway/includes/frontend-tracking.php
+index 422d24d..ba9f52c 100644
+--- a/wordpress-plugin/capi-gateway/includes/frontend-tracking.php
++++ b/wordpress-plugin/capi-gateway/includes/frontend-tracking.php
+@@ -66,7 +66,7 @@ function capigw_inject_tracker() {
+         $tracker_data['page_type'] = 'product';
+     } elseif ( function_exists( 'is_cart' ) && is_cart() ) {
+         $tracker_data['page_type'] = 'cart';
+-    } elseif ( function_exists( 'is_checkout' ) && is_checkout() && ! is_order_received_page() ) {
++    } elseif ( function_exists( 'is_checkout' ) && is_checkout() && ( ! function_exists( 'is_order_received_page' ) || ! is_order_received_page() ) ) {
+         $tracker_data['page_type'] = 'checkout';
+     } elseif ( function_exists( 'is_order_received_page' ) && is_order_received_page() ) {
+         $tracker_data['page_type'] = 'thankyou';
+@@ -75,6 +75,31 @@ function capigw_inject_tracker() {
+         $tracker_data['search_string'] = get_search_query();
+     }
+ 
++    // Add cart data for ViewCart and InitiateCheckout matching/optimization.
++    if (
++        function_exists( 'WC' ) &&
++        WC()->cart &&
++        ( ( function_exists( 'is_cart' ) && is_cart() ) || ( function_exists( 'is_checkout' ) && is_checkout() && ( ! function_exists( 'is_order_received_page' ) || ! is_order_received_page() ) ) )
++    ) {
++        $cart_ids  = array();
++        $num_items = 0;
++
++        foreach ( WC()->cart->get_cart() as $cart_item ) {
++            $product_id = isset( $cart_item['product_id'] ) ? (int) $cart_item['product_id'] : 0;
++            if ( $product_id > 0 ) {
++                $cart_ids[] = (string) $product_id;
++            }
++            $num_items += isset( $cart_item['quantity'] ) ? (int) $cart_item['quantity'] : 0;
++        }
++
++        $tracker_data['cart'] = array(
++            'content_ids' => array_values( array_unique( $cart_ids ) ),
++            'value'       => (float) WC()->cart->get_cart_contents_total(),
++            'currency'    => get_woocommerce_currency(),
++            'num_items'   => $num_items,
++        );
++    }
++
+     echo "<script id='capigw-tracker-config'>\n";
+     echo "window.capigw_config = " . wp_json_encode( $tracker_data ) . ";\n";
+     echo "</script>\n";
+@@ -92,6 +117,7 @@ function capigw_get_tracker_js() {
+ 
+     var cfg = window.capigw_config || {};
+     if (!cfg.ajax_url) return;
++    persistTikTokClickId();
+ 
+     // ΓöÇΓöÇΓöÇ Helper: Send event via AJAX (cache-safe) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+     function sendEvent(eventName, eventData, synchronous) {
+@@ -104,6 +130,8 @@ function capigw_get_tracker_js() {
+         formData.append('page_title', document.title);
+         formData.append('fbp', getCookie('_fbp') || '');
+         formData.append('fbc', getCookie('_fbc') || '');
++        formData.append('ttp', getCookie('_ttp') || '');
++        formData.append('ttclid', getTikTokClickId());
+ 
+         // synchronous=true ΓÇö αª¬αºçαª£ αª¿αºçαª¡αª┐αªùαºçαªƒ αª╣αªôαª»αª╝αª╛αª░ αªåαªùαºç αª¿αª┐αª╢αºìαªÜαª┐αªñ αª¬αª╛αªáαª╛αªñαºç
+         if (synchronous) {
+@@ -127,6 +155,24 @@ function capigw_get_tracker_js() {
+         return match ? decodeURIComponent(match[2]) : '';
+     }
+ 
++    function getQueryParam(name) {
++        try {
++            return new URLSearchParams(window.location.search).get(name) || '';
++        } catch(e) {
++            return '';
++        }
++    }
++
++    function persistTikTokClickId() {
++        var ttclid = getQueryParam('ttclid');
++        if (!ttclid) return;
++        document.cookie = '_ttclid=' + encodeURIComponent(ttclid) + '; path=/; max-age=' + (90 * 24 * 60 * 60) + '; SameSite=Lax';
++    }
++
++    function getTikTokClickId() {
++        return getQueryParam('ttclid') || getCookie('_ttclid') || '';
++    }
++
+     // ΓöÇΓöÇΓöÇ 1. PageView ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+     if (cfg.events && cfg.events.pageview) {
+         sendEvent('PageView', {});
+@@ -201,12 +247,26 @@ function capigw_get_tracker_js() {
+ 
+     // ΓöÇΓöÇΓöÇ 4. InitiateCheckout ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+     if (cfg.events && cfg.events.checkout && cfg.page_type === 'checkout') {
+-        sendEvent('InitiateCheckout', {});
++        var checkoutData = cfg.cart || {};
++        sendEvent('InitiateCheckout', {
++            content_ids: checkoutData.content_ids || [],
++            content_type: 'product',
++            value: checkoutData.value || 0,
++            currency: checkoutData.currency || 'BDT',
++            num_items: checkoutData.num_items || 0
++        });
+     }
+ 
+     // ΓöÇΓöÇΓöÇ 5. ViewCart (WooCommerce Cart Page) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+     if (cfg.events && cfg.events.viewcart && cfg.page_type === 'cart') {
+-        sendEvent('ViewCart', {});
++        var cartData = cfg.cart || {};
++        sendEvent('ViewCart', {
++            content_ids: cartData.content_ids || [],
++            content_type: 'product',
++            value: cartData.value || 0,
++            currency: cartData.currency || 'BDT',
++            num_items: cartData.num_items || 0
++        });
+     }
+ 
+     // ΓöÇΓöÇΓöÇ 6. RemoveFromCart ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+@@ -391,6 +451,8 @@ function capigw_ajax_track_event() {
+     $page_url   = isset( $_POST['page_url'] ) ? esc_url_raw( wp_unslash( $_POST['page_url'] ) ) : '';
+     $fbp        = isset( $_POST['fbp'] ) ? sanitize_text_field( wp_unslash( $_POST['fbp'] ) ) : '';
+     $fbc        = isset( $_POST['fbc'] ) ? sanitize_text_field( wp_unslash( $_POST['fbc'] ) ) : '';
++    $ttp        = isset( $_POST['ttp'] ) ? sanitize_text_field( wp_unslash( $_POST['ttp'] ) ) : '';
++    $ttclid     = isset( $_POST['ttclid'] ) ? sanitize_text_field( wp_unslash( $_POST['ttclid'] ) ) : '';
+ 
+     if ( empty( $event_name ) || ! in_array( $event_name, $allowed_events, true ) ) {
+         wp_send_json_error( 'Invalid event name' );
+@@ -414,6 +476,12 @@ function capigw_ajax_track_event() {
+     if ( ! empty( $fbc ) ) {
+         $user_data['fbc'] = $fbc;
+     }
++    if ( ! empty( $ttp ) ) {
++        $user_data['ttp'] = $ttp;
++    }
++    if ( ! empty( $ttclid ) ) {
++        $user_data['ttclid'] = $ttclid;
++    }
+ 
+     // If user is logged in, hash their email and name
+     if ( is_user_logged_in() ) {
+@@ -528,6 +596,12 @@ function capigw_track_purchase( $order_id ) {
+     if ( isset( $_COOKIE['_fbc'] ) ) {
+         $user_data['fbc'] = sanitize_text_field( wp_unslash( $_COOKIE['_fbc'] ) );
+     }
++    if ( isset( $_COOKIE['_ttp'] ) ) {
++        $user_data['ttp'] = sanitize_text_field( wp_unslash( $_COOKIE['_ttp'] ) );
++    }
++    if ( isset( $_COOKIE['_ttclid'] ) ) {
++        $user_data['ttclid'] = sanitize_text_field( wp_unslash( $_COOKIE['_ttclid'] ) );
++    }
+ 
+     // Build event payload
+     $event_payload = array(

@@ -8,8 +8,8 @@ from app.security import decrypt_token
 logger = logging.getLogger(__name__)
 
 FACEBOOK_API_VERSION = os.getenv("FACEBOOK_API_VERSION", "v21.0")
-HTTP_MAX_CONNECTIONS = int(os.getenv("HTTP_MAX_CONNECTIONS", "100"))
-HTTP_MAX_KEEPALIVE_CONNECTIONS = int(os.getenv("HTTP_MAX_KEEPALIVE_CONNECTIONS", "40"))
+HTTP_MAX_CONNECTIONS = int(os.getenv("HTTP_MAX_CONNECTIONS", "20"))
+HTTP_MAX_KEEPALIVE_CONNECTIONS = int(os.getenv("HTTP_MAX_KEEPALIVE_CONNECTIONS", "10"))
 HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "15.0"))
 
 # ─── Global Persistent HTTP Client ─────────────────────────────────────────

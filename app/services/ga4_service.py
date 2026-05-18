@@ -102,5 +102,8 @@ async def send_to_ga4(events: List[Dict[str, Any]], measurement_id: str, api_sec
         # GA4 Measurement Protocol always returns 2xx even if invalid, unless request is malformed
         if response.status_code >= 400:
             logger.error(f"GA4 error: {response.text}")
+            return {"ok": False, "status_code": response.status_code, "error": response.text[:500]}
+        return {"ok": True, "status_code": response.status_code}
     except Exception as e:
         logger.error(f"Failed to send to GA4: {e}")
+        return {"ok": False, "error": str(e)}

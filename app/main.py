@@ -50,19 +50,28 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 CAPI Gateway স্টার্ট হচ্ছে...")
 
     # ─── Database Schema ──────────────────────────────────────────────────
-    # Production-এ Alembic migration ব্যবহার করুন। create_all শুধু dev/initial
-    # setup-এর জন্য। SKIP_CREATE_ALL=true সেট করলে এটি স্কিপ হবে।
-    if os.getenv("SKIP_CREATE_ALL", "").lower() in ("true", "1", "yes"):
-        logger.info("ℹ️  create_all স্কিপ — Alembic migration ব্যবহার করুন।")
-    else:
+    # Production-এ Alembic migration ব্যবহার করুন। create_all শুধু explicit
+    # dev/initial setup-এর জন্য: ENABLE_CREATE_ALL=true.
+    skip_create_all = os.getenv("SKIP_CREATE_ALL", "").lower() in ("true", "1", "yes")
+    enable_create_all = os.getenv("ENABLE_CREATE_ALL", "").lower() in ("true", "1", "yes")
+    if enable_create_all and not skip_create_all:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("✅ ডাটাবেস টেবিল তৈরি/যাচাই সফল।")
+    else:
+        logger.info("ℹ️  create_all স্কিপ — Alembic migration ব্যবহার করুন।")
 
     # 🔄 Retry Service — শুধুমাত্র ENABLE_RETRY_IN_WEB=true হলে এই process-এ চলবে
     # Worker dyno না থাকলে Procfile-এ: web: ENABLE_RETRY_IN_WEB=true uvicorn ... --workers 1
     # অথবা Heroku config var-এ সেট করুন। একাধিক worker থাকলে retry duplicate হবে!
     import asyncio
+    if os.getenv("ENABLE_OUTBOX_IN_WEB", "").lower() in ("true", "1", "yes"):
+        from app.services.event_worker import process_event_outbox_forever
+        asyncio.create_task(process_event_outbox_forever())
+        logger.info("Outbox worker started in Web Process.")
+    else:
+        logger.info("Outbox worker disabled in Web Process (ENABLE_OUTBOX_IN_WEB not set).")
+
     if os.getenv("ENABLE_RETRY_IN_WEB", "").lower() in ("true", "1", "yes"):
         from app.services.retry_service import retry_failed_events
         asyncio.create_task(retry_failed_events())
@@ -70,15 +79,18 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("ℹ️  Retry Service এই process-এ নিষ্ক্রিয় (ENABLE_RETRY_IN_WEB সেট নেই)।")
 
-    # 🧹 Auto-Cleanup Service
-    from app.services.cleanup_service import auto_cleanup_database
-    asyncio.create_task(auto_cleanup_database())
-    logger.info("🧹 Background Auto-Cleanup Service স্টার্ট হয়েছে (30 days retention)।")
+    if os.getenv("ENABLE_MAINTENANCE_IN_WEB", "").lower() in ("true", "1", "yes"):
+        # 🧹 Auto-Cleanup Service
+        from app.services.cleanup_service import auto_cleanup_database
+        asyncio.create_task(auto_cleanup_database())
+        logger.info("🧹 Background Auto-Cleanup Service স্টার্ট হয়েছে (Web Process)।")
 
-    # ⏰ Pending Events Auto-Expiry Service
-    from app.services.expiry_service import expire_old_pending_events
-    asyncio.create_task(expire_old_pending_events())
-    logger.info("⏰ Pending Events Expiry Service স্টার্ট হয়েছে (7 days limit)।")
+        # ⏰ Pending Events Auto-Expiry Service
+        from app.services.expiry_service import expire_old_pending_events
+        asyncio.create_task(expire_old_pending_events())
+        logger.info("⏰ Pending Events Expiry Service স্টার্ট হয়েছে (Web Process)।")
+    else:
+        logger.info("ℹ️  Maintenance loops web process-এ নিষ্ক্রিয়; worker process ব্যবহার করুন।")
 
     # 🌍 GeoIP Database Load
     from app.services.geoip_service import download_geoip_db_if_missing, close_geoip_db
@@ -126,7 +138,13 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["X-API-Key", "X-CAPI-Origin", "Content-Type"],
+    allow_headers=[
+        "X-API-Key",
+        "X-CAPI-Origin",
+        "X-CAPI-Timestamp",
+        "X-CAPI-Signature",
+        "Content-Type",
+    ],
 )
 
 # ─── Routers ─────────────────────────────────────────────────────────────────

@@ -20,12 +20,12 @@ TIKTOK_API_URL = "https://business-api.tiktok.com/open_api/v1.3/event/track/"
 def _map_event_name(fb_event_name: str) -> str:
     """Facebook event name কে TikTok-এর সমতুল্য ইভেন্টে কনভার্ট করে।"""
     mapping = {
-        "PageView": "ViewContent",
+        "PageView": "PageView",
         "ViewContent": "ViewContent",
         "AddToCart": "AddToCart",
         "InitiateCheckout": "InitiateCheckout",
         "AddPaymentInfo": "AddPaymentInfo",
-        "Purchase": "PlaceAnOrder",
+        "Purchase": "Purchase",
         "CompletePayment": "CompletePayment",
         "Lead": "SubmitForm",
         "Contact": "Contact",
@@ -64,9 +64,10 @@ def _build_tiktok_payload(client, events: List[EventData]) -> dict:
                 user["phone_number"] = ud.ph[0] if ud.ph else None
             if ud.external_id:
                 user["external_id"] = ud.external_id[0] if ud.external_id else None
-
-            # TikTok click ID (ttclid) from fbc if available
-            # Note: TikTok uses ttclid, not fbc. But we pass what we have.
+            if ud.ttp:
+                user["ttp"] = ud.ttp
+            if ud.ttclid:
+                context["ad"] = {"callback": ud.ttclid}
 
             context["user"] = user
             tt_event["context"] = context

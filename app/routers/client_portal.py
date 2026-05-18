@@ -864,88 +864,19 @@ capi('setUser', {{
         </div>
 
         <div style="margin-bottom:20px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px;text-align:center;font-size:13px;color:#888;">
-          <span style="color:#555;font-size:18px;">── অথবা ──</span><br>
-          <span style="color:#aaa">প্লাগইন ছাড়া ম্যানুয়ালি সেটআপ করতে চাইলে নিচের পদ্ধতি ফলো করুন</span>
+          <span style="color:#aaa">Non-WooCommerce/custom site হলে শুধু নিচের site JS ব্যবহার করুন। WooCommerce store হলে official plugin-ই ব্যবহার করবেন।</span>
         </div>
 
-        <p><strong style="color:#fff">ধাপ ১:</strong> আপনার WordPress ওয়েবসাইটে লগিন করুন।</p>
-        <p><strong style="color:#fff">ধাপ ২:</strong> <code>WPCode</code> নামের ফ্রি প্লাগিনটি ইনস্টল এবং এক্টিভেট করুন।</p>
-        <p><strong style="color:#fff">ধাপ ৩:</strong> WPCode থেকে "Header & Footer" অপশনে যান।</p>
-        <p><strong style="color:#fff">ধাপ ৪:</strong> "Header" বক্সে নিচের কোডটি কপি করে পেস্ট করুন এবং Save দিন:</p>
+        <div style="margin:12px 0;padding:12px;background:rgba(255,82,82,0.08);border:1px solid rgba(255,82,82,0.25);border-radius:8px;color:#ffb4b4;font-size:13px;line-height:1.7;">
+          ⚠️ Old manual WooCommerce snippets removed. Plugin active থাকা অবস্থায় extra snippet দিলে Purchase/AddToCart/ViewContent duplicate হতে পারে।
+        </div>
+        <p><strong style="color:#fff">Custom site JS:</strong> WordPress ছাড়া custom website হলে head/footer অংশে এই script দিন।</p>
         <button class="copy-btn" onclick="copyText('wp_pv_easy')" style="margin-bottom:4px">Copy</button>
         <div class="instr-box" id="wp_pv_easy">&lt;script src="{safe_tracker_url}" defer&gt;&lt;/script&gt;</div>
-        
         <div style="margin-top:16px;padding:14px;background:rgba(0,230,118,0.05);border:1px solid rgba(0,230,118,0.15);border-radius:8px;font-size:13px;color:#aaa;line-height:1.9">
-          <strong style="color:#00e676">🎉 অভিনন্দন!</strong><br>
-          আপনার ওয়েবসাইটে পেজ-ভিউ ট্র্যাকিং চালু হয়ে গেছে! এখন কেউ আপনার ওয়েবসাইটে আসলে আপনি তা দেখতে পাবেন।
+          <strong style="color:#00e676">✅ Clean setup:</strong><br>
+          WooCommerce tracking = official plugin. Custom/non-Woo page tracking = site JS. Old ecommerce snippet আর দরকার নেই।
         </div>
-        
-        <br><br>
-        <p><strong style="color:#fff">ধাপ ৫ (সবগুলো ইকমার্স ইভেন্ট একসাথে ট্র্যাক করতে):</strong></p>
-        <p>Purchase, AddToCart, ViewContent (প্রোডাক্ট দেখা) এবং Checkout ট্র্যাক করতে WPCode-এর "Add Snippet"-এ গিয়ে "Add Your Custom Code" সিলেক্ট করুন। Code Type দিন "PHP Snippet" এবং নিচের ম্যাজিক কোডটি পেস্ট করে "Active" করে সেভ দিন। ব্যাস, আপনার পুরো স্টোর ট্র্যাকিং শুরু হয়ে যাবে!</p>
-        <button class="copy-btn" onclick="copyText('wp_all_easy')" style="margin-bottom:4px">Copy</button>
-        <div class="instr-box" id="wp_all_easy">&lt;?php
-// ১. Purchase Event
-add_action('woocommerce_thankyou', 'send_capi_purchase_easy');
-function send_capi_purchase_easy($order_id) {{
-    $order = wc_get_order($order_id);
-    send_capi_event('Purchase', $order-&gt;get_checkout_url(), $order-&gt;get_total(), "order-" . $order_id, null);
-}}
-
-// ২. ViewContent (Product View)
-add_action('woocommerce_after_single_product', 'send_capi_view_content');
-function send_capi_view_content() {{
-    global $product;
-    send_capi_event('ViewContent', get_permalink(), $product-&gt;get_price(), 'view-' . $product-&gt;get_id(), $product-&gt;get_id());
-}}
-
-// ৩. AddToCart
-add_action('woocommerce_add_to_cart', 'send_capi_add_to_cart', 10, 2);
-function send_capi_add_to_cart($cart_item_key, $product_id) {{
-    $product = wc_get_product($product_id);
-    send_capi_event('AddToCart', wc_get_cart_url(), $product-&gt;get_price(), 'cart-' . $product_id, $product_id);
-}}
-
-// ৪. InitiateCheckout
-add_action('woocommerce_before_checkout_form', 'send_capi_checkout');
-function send_capi_checkout() {{
-    send_capi_event('InitiateCheckout', wc_get_checkout_url(), WC()-&gt;cart-&gt;get_cart_contents_total(), 'chk-' . time(), null);
-}}
-
-// Main Function to Send Data
-function send_capi_event($event_name, $url, $value, $event_id, $product_id) {{
-    $data = ['data' =&gt; [[
-        'event_name' =&gt; $event_name,
-        'event_time' =&gt; time(),
-        'event_id' =&gt; $event_id,
-        'event_source_url' =&gt; $url,
-        'action_source' =&gt; 'website',
-        'user_data' =&gt; [
-            'client_ip_address' =&gt; $_SERVER['REMOTE_ADDR'] ?? '',
-            'client_user_agent' =&gt; $_SERVER['HTTP_USER_AGENT'] ?? ''
-        ],
-        'custom_data' =&gt; [
-            'value' =&gt; (float) $value,
-            'currency' =&gt; get_woocommerce_currency()
-        ]
-    ]]];
-    
-    if ($product_id) {{
-        $data['data'][0]['custom_data']['content_ids'] = [$product_id];
-        $data['data'][0]['custom_data']['content_type'] = 'product';
-    }}
-
-    wp_remote_post('{safe_endpoint}', [
-        'body' => json_encode($data),
-        'headers' => [
-            'Content-Type' => 'application/json',
-            'X-API-Key' => '{safe_api_key}',
-            'X-CAPI-Origin' => '{safe_capi_origin}'
-        ],
-        'blocking' => false
-    ]);
-}}
-?&gt;</div>
       </div>
     """
 
@@ -1114,88 +1045,19 @@ capi('setUser', {{
         </div>
 
         <div style="margin-bottom:20px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px;text-align:center;font-size:13px;color:#888;">
-          <span style="color:#555;font-size:18px;">── অথবা ──</span><br>
-          <span style="color:#aaa">প্লাগইন ছাড়া ম্যানুয়ালি সেটআপ করতে চাইলে নিচের পদ্ধতি ফলো করুন</span>
+          <span style="color:#aaa">Non-WooCommerce/custom site হলে শুধু নিচের site JS ব্যবহার করুন। WooCommerce store হলে official plugin-ই ব্যবহার করবেন।</span>
         </div>
 
-        <p><strong style="color:#fff">ধাপ ১:</strong> আপনার WordPress ওয়েবসাইটে লগিন করুন।</p>
-        <p><strong style="color:#fff">ধাপ ২:</strong> <code>WPCode</code> নামের ফ্রি প্লাগিনটি ইনস্টল এবং এক্টিভেট করুন।</p>
-        <p><strong style="color:#fff">ধাপ ৩:</strong> WPCode থেকে "Header & Footer" অপশনে যান।</p>
-        <p><strong style="color:#fff">ধাপ ৪:</strong> "Header" বক্সে নিচের কোডটি কপি করে পেস্ট করুন এবং Save দিন:</p>
+        <div style="margin:12px 0;padding:12px;background:rgba(255,82,82,0.08);border:1px solid rgba(255,82,82,0.25);border-radius:8px;color:#ffb4b4;font-size:13px;line-height:1.7;">
+          ⚠️ Old manual WooCommerce snippets removed. Plugin active থাকা অবস্থায় extra snippet দিলে Purchase/AddToCart/ViewContent duplicate হতে পারে।
+        </div>
+        <p><strong style="color:#fff">Custom site JS:</strong> WordPress ছাড়া custom website হলে head/footer অংশে এই script দিন।</p>
         <button class="copy-btn" onclick="copyText('wp_pv_easy')" style="margin-bottom:4px">Copy</button>
         <div class="instr-box" id="wp_pv_easy">&lt;script src="{safe_tracker_url}" defer&gt;&lt;/script&gt;</div>
-        
         <div style="margin-top:16px;padding:14px;background:rgba(0,230,118,0.05);border:1px solid rgba(0,230,118,0.15);border-radius:8px;font-size:13px;color:#aaa;line-height:1.9">
-          <strong style="color:#00e676">🎉 অভিনন্দন!</strong><br>
-          আপনার ওয়েবসাইটে পেজ-ভিউ ট্র্যাকিং চালু হয়ে গেছে! এখন কেউ আপনার ওয়েবসাইটে আসলে আপনি তা দেখতে পাবেন।
+          <strong style="color:#00e676">✅ Clean setup:</strong><br>
+          WooCommerce tracking = official plugin. Custom/non-Woo page tracking = site JS. Old ecommerce snippet আর দরকার নেই।
         </div>
-        
-        <br><br>
-        <p><strong style="color:#fff">ধাপ ৫ (সবগুলো ইকমার্স ইভেন্ট একসাথে ট্র্যাক করতে):</strong></p>
-        <p>Purchase, AddToCart, ViewContent (প্রোডাক্ট দেখা) এবং Checkout ট্র্যাক করতে WPCode-এর "Add Snippet"-এ গিয়ে "Add Your Custom Code" সিলেক্ট করুন। Code Type দিন "PHP Snippet" এবং নিচের ম্যাজিক কোডটি পেস্ট করে "Active" করে সেভ দিন। ব্যাস, আপনার পুরো স্টোর ট্র্যাকিং শুরু হয়ে যাবে!</p>
-        <button class="copy-btn" onclick="copyText('wp_all_easy')" style="margin-bottom:4px">Copy</button>
-        <div class="instr-box" id="wp_all_easy">&lt;?php
-// ১. Purchase Event
-add_action('woocommerce_thankyou', 'send_capi_purchase_easy');
-function send_capi_purchase_easy($order_id) {{
-    $order = wc_get_order($order_id);
-    send_capi_event('Purchase', $order-&gt;get_checkout_url(), $order-&gt;get_total(), "order-" . $order_id, null);
-}}
-
-// ২. ViewContent (Product View)
-add_action('woocommerce_after_single_product', 'send_capi_view_content');
-function send_capi_view_content() {{
-    global $product;
-    send_capi_event('ViewContent', get_permalink(), $product-&gt;get_price(), 'view-' . $product-&gt;get_id(), $product-&gt;get_id());
-}}
-
-// ৩. AddToCart
-add_action('woocommerce_add_to_cart', 'send_capi_add_to_cart', 10, 2);
-function send_capi_add_to_cart($cart_item_key, $product_id) {{
-    $product = wc_get_product($product_id);
-    send_capi_event('AddToCart', wc_get_cart_url(), $product-&gt;get_price(), 'cart-' . $product_id, $product_id);
-}}
-
-// ৪. InitiateCheckout
-add_action('woocommerce_before_checkout_form', 'send_capi_checkout');
-function send_capi_checkout() {{
-    send_capi_event('InitiateCheckout', wc_get_checkout_url(), WC()-&gt;cart-&gt;get_cart_contents_total(), 'chk-' . time(), null);
-}}
-
-// Main Function to Send Data
-function send_capi_event($event_name, $url, $value, $event_id, $product_id) {{
-    $data = ['data' =&gt; [[
-        'event_name' =&gt; $event_name,
-        'event_time' =&gt; time(),
-        'event_id' =&gt; $event_id,
-        'event_source_url' =&gt; $url,
-        'action_source' =&gt; 'website',
-        'user_data' =&gt; [
-            'client_ip_address' =&gt; $_SERVER['REMOTE_ADDR'] ?? '',
-            'client_user_agent' =&gt; $_SERVER['HTTP_USER_AGENT'] ?? ''
-        ],
-        'custom_data' =&gt; [
-            'value' =&gt; (float) $value,
-            'currency' =&gt; get_woocommerce_currency()
-        ]
-    ]]];
-    
-    if ($product_id) {{
-        $data['data'][0]['custom_data']['content_ids'] = [$product_id];
-        $data['data'][0]['custom_data']['content_type'] = 'product';
-    }}
-
-    wp_remote_post('{safe_endpoint}', [
-        'body' => json_encode($data),
-        'headers' => [
-            'Content-Type' => 'application/json',
-            'X-API-Key' => '{safe_api_key}',
-            'X-CAPI-Origin' => '{safe_capi_origin}'
-        ],
-        'blocking' => false
-    ]);
-}}
-?&gt;</div>
       </div>
     """
 

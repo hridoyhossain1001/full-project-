@@ -2,7 +2,8 @@
 WooCommerce Webhook Router
 ────────────────────────────
 WordPress-এর বিল্ট-ইন Webhook সিস্টেম দিয়ে অর্ডার স্ট্যাটাস চেঞ্জ রিসিভ করে।
-প্লাগইন ব্যবহার না করলেও এই endpoint দিয়ে Deferred Purchase কনফার্ম করা যায়।
+প্লাগইন ব্যবহার না করলেও এই endpoint দিয়ে Deferred Purchase কনফার্ম করে
+durable outbox queue-তে পাঠানো যায়।
 
 Endpoints:
   POST /api/v1/webhook/woocommerce  — WooCommerce Webhook রিসিভ করে
@@ -16,17 +17,16 @@ import logging
 import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, Request, HTTPException, Depends
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db, AsyncSessionLocal
+from app.database import get_db
 from app.models.client import Client
 from app.models.pending_event import PendingEvent
-from app.models.event_log import EventLog
 from app.schemas.event import EventData
-from app.services.capi_service import send_to_facebook
-from app.services.usage_service import increment_usage_counters_db
+from app.services.event_worker import enqueue_events
+from app.services.usage_service import check_and_reserve_usage
 from app.dependencies import CachedClient, _snapshot
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,6 @@ async def _get_client_by_api_key(api_key: str, db: AsyncSession):
 )
 async def woocommerce_webhook(
     request: Request,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -149,52 +148,46 @@ async def woocommerce_webhook(
             "message": f"No pending Purchase event found for order #{order_id}",
         }
 
-    # ─── Send to Facebook ─────────────────────────────────────────────
+    # ─── Queue confirmed purchase for worker delivery ────────────────
     event_dict = pending.event_data.copy()
     event_dict["event_time"] = int(datetime.now(timezone.utc).timestamp())
 
     try:
         event = EventData(**event_dict)
-        fb_result = await send_to_facebook(client, [event])
+        events_data = [event.model_dump(exclude_none=True)]
+        reserved_keys = await check_and_reserve_usage(db, client, 1)
+        user_data = event_dict.get("user_data", {}) or {}
+        await enqueue_events(
+            db,
+            client_id=client.id,
+            events_data=events_data,
+            request_context={
+                "ip_address": user_data.get("client_ip_address"),
+                "user_agent": user_data.get("client_user_agent") or "",
+                "cookies": {},
+            },
+            usage_reserved=reserved_keys,
+        )
+    except HTTPException:
+        await db.rollback()
+        raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"[{client.name}] Webhook confirm failed (order #{order_id}): {e}")
+        logger.error(f"[{client.name}] Webhook confirm queue failed (order #{order_id}): {e}")
         raise HTTPException(
-            status_code=502,
-            detail=f"Facebook send failed: {e}",
-        )
+            status_code=500,
+            detail=f"Purchase event queue failed: {e}",
+        ) from None
 
     # ─── Update pending status ────────────────────────────────────────
     pending.status = "confirmed"
     pending.confirmed_at = datetime.now(timezone.utc)
     await db.commit()
 
-    # ─── Background: Log + Usage ──────────────────────────────────────
-    async def _log_and_count():
-        try:
-            async with AsyncSessionLocal() as log_db:
-                log_entry = EventLog(
-                    client_id=client.id,
-                    event_name=event_dict.get("event_name", "Purchase"),
-                    event_id=event_dict.get("event_id"),
-                    event_count=1,
-                    status="success",
-                    fb_response=json.dumps(fb_result) if fb_result else None,
-                    ip_address=event_dict.get("user_data", {}).get("client_ip_address"),
-                )
-                log_db.add(log_entry)
-                await log_db.commit()
-            async with AsyncSessionLocal() as usage_db:
-                await increment_usage_counters_db(usage_db, client, 1)
-        except Exception as e:
-            logger.error(f"Webhook log/usage error: {e}")
-
-    background_tasks.add_task(_log_and_count)
-
-    logger.info(f"[{client.name}] ✅ Webhook confirmed order #{order_id} → Facebook")
+    logger.info(f"[{client.name}] Webhook confirmed order #{order_id} queued for delivery")
 
     return {
         "status": "success",
         "order_id": str(order_id),
-        "message": "Purchase event confirmed and sent to Facebook!",
+        "message": "Purchase event confirmed and queued for delivery!",
     }

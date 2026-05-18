@@ -5,6 +5,7 @@ from sqlalchemy import delete
 from app.database import AsyncSessionLocal
 from app.models.event_log import EventLog
 from app.models.event_dedup import EventDedup
+from app.models.event_outbox import EventOutbox
 from app.models.failed_event import FailedEvent
 from app.models.usage_counter import UsageCounter
 
@@ -13,7 +14,8 @@ logger = logging.getLogger(__name__)
 async def auto_cleanup_database():
     """
     Background task to periodically delete old records.
-    Cleans: EventLogs (30d), EventDedup (30d), FailedEvents dead/success (30d), UsageCounters (7d).
+    Cleans: EventLogs (30d), EventDedup (30d), EventOutbox sent/dead (30d),
+    FailedEvents dead/success (30d), UsageCounters (400d).
     Runs once every 24 hours.
     """
     retention_days = 30
@@ -53,6 +55,18 @@ async def auto_cleanup_database():
                     logger.warning(f"Could not clean FailedEvents: {e}")
                     failed_deleted = 0
 
+                # Delete old outbox rows that are no longer actionable.
+                try:
+                    stmt_outbox = delete(EventOutbox).where(
+                        EventOutbox.status.in_(["sent", "dead"]),
+                        EventOutbox.created_at < cutoff_date,
+                    )
+                    result_outbox = await db.execute(stmt_outbox)
+                    outbox_deleted = result_outbox.rowcount
+                except Exception as e:
+                    logger.warning(f"Could not clean EventOutbox: {e}")
+                    outbox_deleted = 0
+
                 # Delete old UsageCounters (rate + daily windows older than 7 days)
                 try:
                     stmt_usage = delete(UsageCounter).where(
@@ -69,7 +83,7 @@ async def auto_cleanup_database():
             logger.info(
                 f"✅ Cleanup complete: Deleted {logs_deleted} logs, "
                 f"{dedup_deleted} dedup, {failed_deleted} failed events, "
-                f"{usage_deleted} usage counters "
+                f"{outbox_deleted} outbox rows, {usage_deleted} usage counters "
                 f"(retention: {retention_days}d logs, {usage_retention_days}d counters)."
             )
             

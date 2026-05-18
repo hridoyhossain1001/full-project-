@@ -43,6 +43,8 @@ class UserData(BaseModel):
     client_user_agent: Optional[str] = None
     fbc: Optional[str] = None             # Facebook click ID (_fbc cookie)
     fbp: Optional[str] = None             # Facebook browser ID (_fbp cookie)
+    ttp: Optional[str] = None             # TikTok browser ID (_ttp cookie)
+    ttclid: Optional[str] = None          # TikTok click ID
 
     @model_validator(mode='before')
     @classmethod

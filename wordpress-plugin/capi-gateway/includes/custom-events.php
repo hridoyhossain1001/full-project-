@@ -55,7 +55,7 @@ function capigw_save_custom_events() {
     $sanitized = array();
     foreach ( $events as $event ) {
         $sanitized[] = array(
-            'name'         => sanitize_text_field( $event['name'] ?? '' ),
+            'name'         => preg_replace( '/[^A-Za-z0-9_]/', '', sanitize_text_field( $event['name'] ?? '' ) ),
             'trigger'      => sanitize_text_field( $event['trigger'] ?? 'click' ),
             'selector'     => sanitize_text_field( $event['selector'] ?? '' ),
             'url_pattern'  => sanitize_text_field( $event['url_pattern'] ?? '' ),
@@ -264,6 +264,8 @@ function capigw_inject_custom_events_js() {
             formData.append('page_url', window.location.href);
             formData.append('fbp', getCookie('_fbp') || '');
             formData.append('fbc', getCookie('_fbc') || '');
+            formData.append('ttp', getCookie('_ttp') || '');
+            formData.append('ttclid', getQueryParam('ttclid') || getCookie('_ttclid') || '');
             navigator.sendBeacon
                 ? navigator.sendBeacon(cfg.ajax_url, formData)
                 : fetch(cfg.ajax_url, { method: 'POST', body: formData, keepalive: true });
@@ -274,10 +276,27 @@ function capigw_inject_custom_events_js() {
             return m ? decodeURIComponent(m[2]) : '';
         }
 
+        function getQueryParam(n) {
+            try {
+                return new URLSearchParams(window.location.search).get(n) || '';
+            } catch(e) {
+                return '';
+            }
+        }
+
+        function elementMatches(el, selector) {
+            if (!selector || !el) return false;
+            try {
+                return !!(el.matches(selector) || el.closest(selector));
+            } catch(e) {
+                return false;
+            }
+        }
+
         customEvents.forEach(function(ev) {
             if (ev.trigger === 'click' && ev.selector) {
                 document.addEventListener('click', function(e) {
-                    if (e.target.closest(ev.selector)) {
+                    if (elementMatches(e.target, ev.selector)) {
                         sendCustom(ev);
                     }
                 });
@@ -287,7 +306,7 @@ function capigw_inject_custom_events_js() {
                 }
             } else if (ev.trigger === 'form' && ev.selector) {
                 document.addEventListener('submit', function(e) {
-                    if (e.target.matches(ev.selector) || e.target.closest(ev.selector)) {
+                    if (elementMatches(e.target, ev.selector)) {
                         sendCustom(ev);
                     }
                 });

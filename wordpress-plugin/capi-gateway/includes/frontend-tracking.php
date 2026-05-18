@@ -66,13 +66,38 @@ function capigw_inject_tracker() {
         $tracker_data['page_type'] = 'product';
     } elseif ( function_exists( 'is_cart' ) && is_cart() ) {
         $tracker_data['page_type'] = 'cart';
-    } elseif ( function_exists( 'is_checkout' ) && is_checkout() && ! is_order_received_page() ) {
+    } elseif ( function_exists( 'is_checkout' ) && is_checkout() && ( ! function_exists( 'is_order_received_page' ) || ! is_order_received_page() ) ) {
         $tracker_data['page_type'] = 'checkout';
     } elseif ( function_exists( 'is_order_received_page' ) && is_order_received_page() ) {
         $tracker_data['page_type'] = 'thankyou';
     } elseif ( is_search() ) {
         $tracker_data['page_type'] = 'search';
         $tracker_data['search_string'] = get_search_query();
+    }
+
+    // Add cart data for ViewCart and InitiateCheckout matching/optimization.
+    if (
+        function_exists( 'WC' ) &&
+        WC()->cart &&
+        ( ( function_exists( 'is_cart' ) && is_cart() ) || ( function_exists( 'is_checkout' ) && is_checkout() && ( ! function_exists( 'is_order_received_page' ) || ! is_order_received_page() ) ) )
+    ) {
+        $cart_ids  = array();
+        $num_items = 0;
+
+        foreach ( WC()->cart->get_cart() as $cart_item ) {
+            $product_id = isset( $cart_item['product_id'] ) ? (int) $cart_item['product_id'] : 0;
+            if ( $product_id > 0 ) {
+                $cart_ids[] = (string) $product_id;
+            }
+            $num_items += isset( $cart_item['quantity'] ) ? (int) $cart_item['quantity'] : 0;
+        }
+
+        $tracker_data['cart'] = array(
+            'content_ids' => array_values( array_unique( $cart_ids ) ),
+            'value'       => (float) WC()->cart->get_cart_contents_total(),
+            'currency'    => get_woocommerce_currency(),
+            'num_items'   => $num_items,
+        );
     }
 
     echo "<script id='capigw-tracker-config'>\n";
@@ -92,6 +117,7 @@ function capigw_get_tracker_js() {
 
     var cfg = window.capigw_config || {};
     if (!cfg.ajax_url) return;
+    persistTikTokClickId();
 
     // ─── Helper: Send event via AJAX (cache-safe) ──────────────────────
     function sendEvent(eventName, eventData, synchronous) {
@@ -104,6 +130,8 @@ function capigw_get_tracker_js() {
         formData.append('page_title', document.title);
         formData.append('fbp', getCookie('_fbp') || '');
         formData.append('fbc', getCookie('_fbc') || '');
+        formData.append('ttp', getCookie('_ttp') || '');
+        formData.append('ttclid', getTikTokClickId());
 
         // synchronous=true — পেজ নেভিগেট হওয়ার আগে নিশ্চিত পাঠাতে
         if (synchronous) {
@@ -125,6 +153,24 @@ function capigw_get_tracker_js() {
     function getCookie(name) {
         var match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
         return match ? decodeURIComponent(match[2]) : '';
+    }
+
+    function getQueryParam(name) {
+        try {
+            return new URLSearchParams(window.location.search).get(name) || '';
+        } catch(e) {
+            return '';
+        }
+    }
+
+    function persistTikTokClickId() {
+        var ttclid = getQueryParam('ttclid');
+        if (!ttclid) return;
+        document.cookie = '_ttclid=' + encodeURIComponent(ttclid) + '; path=/; max-age=' + (90 * 24 * 60 * 60) + '; SameSite=Lax';
+    }
+
+    function getTikTokClickId() {
+        return getQueryParam('ttclid') || getCookie('_ttclid') || '';
     }
 
     // ─── 1. PageView ───────────────────────────────────────────────────
@@ -201,12 +247,26 @@ function capigw_get_tracker_js() {
 
     // ─── 4. InitiateCheckout ───────────────────────────────────────────
     if (cfg.events && cfg.events.checkout && cfg.page_type === 'checkout') {
-        sendEvent('InitiateCheckout', {});
+        var checkoutData = cfg.cart || {};
+        sendEvent('InitiateCheckout', {
+            content_ids: checkoutData.content_ids || [],
+            content_type: 'product',
+            value: checkoutData.value || 0,
+            currency: checkoutData.currency || 'BDT',
+            num_items: checkoutData.num_items || 0
+        });
     }
 
     // ─── 5. ViewCart (WooCommerce Cart Page) ───────────────────────────
     if (cfg.events && cfg.events.viewcart && cfg.page_type === 'cart') {
-        sendEvent('ViewCart', {});
+        var cartData = cfg.cart || {};
+        sendEvent('ViewCart', {
+            content_ids: cartData.content_ids || [],
+            content_type: 'product',
+            value: cartData.value || 0,
+            currency: cartData.currency || 'BDT',
+            num_items: cartData.num_items || 0
+        });
     }
 
     // ─── 6. RemoveFromCart ─────────────────────────────────────────────
@@ -372,6 +432,10 @@ function capigw_ajax_track_event() {
         wp_send_json_error( 'Invalid origin' );
     }
 
+    if ( capigw_ajax_rate_limited() ) {
+        wp_send_json_error( 'Rate limit exceeded', 429 );
+    }
+
     // ─── Whitelist allowed event names ──────────────────────────────────
     $allowed_events = array( 'PageView', 'ViewContent', 'AddToCart', 'ViewCart', 'RemoveFromCart', 'InitiateCheckout', 'AddPaymentInfo', 'Purchase', 'Lead', 'Search' );
 
@@ -391,6 +455,8 @@ function capigw_ajax_track_event() {
     $page_url   = isset( $_POST['page_url'] ) ? esc_url_raw( wp_unslash( $_POST['page_url'] ) ) : '';
     $fbp        = isset( $_POST['fbp'] ) ? sanitize_text_field( wp_unslash( $_POST['fbp'] ) ) : '';
     $fbc        = isset( $_POST['fbc'] ) ? sanitize_text_field( wp_unslash( $_POST['fbc'] ) ) : '';
+    $ttp        = isset( $_POST['ttp'] ) ? sanitize_text_field( wp_unslash( $_POST['ttp'] ) ) : '';
+    $ttclid     = isset( $_POST['ttclid'] ) ? sanitize_text_field( wp_unslash( $_POST['ttclid'] ) ) : '';
 
     if ( empty( $event_name ) || ! in_array( $event_name, $allowed_events, true ) ) {
         wp_send_json_error( 'Invalid event name' );
@@ -413,6 +479,12 @@ function capigw_ajax_track_event() {
     }
     if ( ! empty( $fbc ) ) {
         $user_data['fbc'] = $fbc;
+    }
+    if ( ! empty( $ttp ) ) {
+        $user_data['ttp'] = $ttp;
+    }
+    if ( ! empty( $ttclid ) ) {
+        $user_data['ttclid'] = $ttclid;
     }
 
     // If user is logged in, hash their email and name
@@ -450,6 +522,27 @@ function capigw_ajax_track_event() {
     capigw_send_event( $event_payload, false );
 
     wp_send_json_success( 'Event tracked' );
+}
+
+
+// ─── Helper: Lightweight AJAX Rate Limit ───────────────────────────────────
+function capigw_ajax_rate_limited() {
+    $ip = capigw_get_real_ip();
+    if ( empty( $ip ) ) {
+        return false;
+    }
+
+    $limit      = 120;
+    $window     = 60;
+    $cache_key  = 'capigw_ajax_rate_' . md5( $ip );
+    $hit_count  = (int) get_transient( $cache_key );
+
+    if ( $hit_count >= $limit ) {
+        return true;
+    }
+
+    set_transient( $cache_key, $hit_count + 1, $window );
+    return false;
 }
 
 
@@ -527,6 +620,12 @@ function capigw_track_purchase( $order_id ) {
     }
     if ( isset( $_COOKIE['_fbc'] ) ) {
         $user_data['fbc'] = sanitize_text_field( wp_unslash( $_COOKIE['_fbc'] ) );
+    }
+    if ( isset( $_COOKIE['_ttp'] ) ) {
+        $user_data['ttp'] = sanitize_text_field( wp_unslash( $_COOKIE['_ttp'] ) );
+    }
+    if ( isset( $_COOKIE['_ttclid'] ) ) {
+        $user_data['ttclid'] = sanitize_text_field( wp_unslash( $_COOKIE['_ttclid'] ) );
     }
 
     // Build event payload

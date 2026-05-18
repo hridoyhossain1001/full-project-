@@ -30,6 +30,7 @@ var E="{gateway_origin}/c";
 var U={{}};  // user identity store
 var Q=[];   // event queue (before DOM ready)
 var R=false; // ready flag
+persistTtclid();
 
 /* ─── Helpers ──────────────────────────────────────────────────── */
 
@@ -45,6 +46,16 @@ function uid(){{
 function gc(n){{
   var m=document.cookie.match(new RegExp('(?:^|; )'+n+'=([^;]*)'));
   return m?decodeURIComponent(m[1]):null;
+}}
+
+function qp(n){{
+  try{{return new URLSearchParams(location.search).get(n)||'';}}
+  catch(e){{return '';}}
+}}
+
+function persistTtclid(){{
+  var id=qp('ttclid');
+  if(id)document.cookie='_ttclid='+encodeURIComponent(id)+'; path=/; max-age='+(90*24*60*60)+'; SameSite=Lax';
 }}
 
 // SHA-256 hash (returns promise)
@@ -70,12 +81,16 @@ function hashArr(arr){{
 function send(eventName, customData, userData){{
   var fbc=gc('_fbc');
   var fbp=gc('_fbp');
+  var ttp=gc('_ttp');
+  var ttclid=qp('ttclid')||gc('_ttclid');
 
   // Build user_data
   var ud={{}};
   ud.client_user_agent=navigator.userAgent;
   if(fbc)ud.fbc=fbc;
   if(fbp)ud.fbp=fbp;
+  if(ttp)ud.ttp=ttp;
+  if(ttclid)ud.ttclid=ttclid;
 
   // Merge stored user identity
   var mergedUser=Object.assign({{}},U,userData||{{}});

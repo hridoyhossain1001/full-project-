@@ -1,81 +1,90 @@
-"""
-Plugin Update Check Router
-───────────────────────────
-WordPress প্লাগইনের অটো-আপডেট সিস্টেমের জন্য সার্ভার-সাইড endpoint।
-প্লাগইন এই endpoint-এ রিকোয়েস্ট পাঠিয়ে নতুন ভার্সন আছে কিনা চেক করে।
-"""
+"""WordPress plugin download and update-check endpoints."""
 
-import os
 import hashlib
 import hmac
+import os
 from pathlib import Path
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 router = APIRouter(tags=["Plugin"])
 
-# Current plugin version — নতুন ভার্সন রিলিজ করলে এখানে আপডেট করুন
-PLUGIN_VERSION = os.getenv("PLUGIN_VERSION", "1.1.1")
+PLUGIN_VERSION = os.getenv("PLUGIN_VERSION", "1.1.2")
 PLUGIN_ZIP_PATH = Path(
     os.getenv(
         "PLUGIN_ZIP_PATH",
         str(Path(__file__).resolve().parents[2] / "wordpress-plugin" / "capi-gateway.zip"),
     )
 )
-PLUGIN_DOWNLOAD_URL = os.getenv(
-    "PLUGIN_DOWNLOAD_URL",
-    "https://still-stream-48626-bb0ac4cda957.herokuapp.com/api/v1/plugin/download"
-)
+PLUGIN_DOWNLOAD_URL = os.getenv("PLUGIN_DOWNLOAD_URL", "")
 
 
 @router.get(
     "/plugin/update-check",
     summary="Check for plugin updates",
-    description="WordPress প্লাগইন এই endpoint-এ রিকোয়েস্ট পাঠিয়ে নতুন ভার্সন চেক করে।",
+    description="Return WordPress plugin update metadata for the built-in auto-updater.",
 )
-async def plugin_update_check(x_api_key: str = Header("", alias="X-API-Key")):
+async def plugin_update_check(
+    request: Request,
+    x_api_key: str = Header("", alias="X-API-Key"),
+):
     """Return current plugin version info for WordPress auto-updater."""
+    download_url = PLUGIN_DOWNLOAD_URL or _plugin_download_url(request)
     package_sha256 = ""
     if PLUGIN_ZIP_PATH.is_file():
         package_sha256 = hashlib.sha256(PLUGIN_ZIP_PATH.read_bytes()).hexdigest()
 
     signature = ""
     if x_api_key and package_sha256:
-        payload = f"{PLUGIN_VERSION}|{PLUGIN_DOWNLOAD_URL}|{package_sha256}"
+        payload = f"{PLUGIN_VERSION}|{download_url}|{package_sha256}"
         signature = hmac.new(
             x_api_key.encode("utf-8"),
             payload.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
-    return _plugin_update_response(package_sha256, signature)
+
+    return _plugin_update_response(download_url, package_sha256, signature)
 
 
-def _plugin_update_response(package_sha256: str, signature: str) -> JSONResponse:
+def _plugin_download_url(request: Request) -> str:
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("host", request.url.netloc)
+    return f"{scheme}://{host}/api/v1/plugin/download"
+
+
+def _plugin_update_response(download_url: str, package_sha256: str, signature: str) -> JSONResponse:
     return JSONResponse(content={
         "version": PLUGIN_VERSION,
-        "download_url": PLUGIN_DOWNLOAD_URL,
+        "download_url": download_url,
         "package_sha256": package_sha256,
         "signature": signature,
         "homepage": "https://still-stream-48626-bb0ac4cda957.herokuapp.com/",
         "requires": "5.8",
         "tested": "6.7",
         "requires_php": "7.4",
-        "last_updated": "2026-05-16",
+        "last_updated": "2026-05-18",
         "description": "Server-Side Facebook CAPI, TikTok, and GA4 tracking for WooCommerce with deferred purchase support.",
-        "changelog": "<h4>v1.1.0</h4><ul>"
-                     "<li>🔒 Purchase event blocking request — response verification</li>"
-                     "<li>🔒 Phone hash normalization fix — Python/PHP matching</li>"
-                     "<li>🔒 WooCommerce webhook HMAC signature verification</li>"
-                     "<li>⚡ Atomic rate limiting — race condition free</li>"
-                     "<li>⚡ Production database safety</li>"
-                     "</ul>"
-                     "<h4>v1.0.0</h4><ul>"
-                     "<li>Initial release</li>"
-                     "<li>PageView, ViewContent, AddToCart, InitiateCheckout, Purchase tracking</li>"
-                     "<li>Deferred Purchase with auto-confirm</li>"
-                     "<li>Action Scheduler retry queue</li>"
-        "</ul>",
+        "changelog": (
+            "<h4>v1.1.2</h4><ul>"
+            "<li>Durable outbox-friendly tracking improvements</li>"
+            "<li>TikTok _ttp and ttclid capture for standard and custom events</li>"
+            "<li>Lightweight AJAX rate limiting for frontend tracking</li>"
+            "<li>Improved checkout/cart payloads and custom event stability</li>"
+            "</ul>"
+            "<h4>v1.1.0</h4><ul>"
+            "<li>Purchase event blocking request response verification</li>"
+            "<li>Phone hash normalization fix</li>"
+            "<li>WooCommerce webhook HMAC signature verification</li>"
+            "<li>Atomic rate limiting and production database safety</li>"
+            "</ul>"
+            "<h4>v1.0.0</h4><ul>"
+            "<li>Initial release</li>"
+            "<li>PageView, ViewContent, AddToCart, InitiateCheckout, Purchase tracking</li>"
+            "<li>Deferred Purchase with auto-confirm</li>"
+            "<li>Action Scheduler retry queue</li>"
+            "</ul>"
+        ),
     })
 
 

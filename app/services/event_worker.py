@@ -28,8 +28,8 @@ from app.services.webhook_service import send_webhook
 logger = logging.getLogger(__name__)
 
 WORKER_ID = os.getenv("EVENT_WORKER_ID") or f"{socket.gethostname()}:{os.getpid()}"
-WORKER_BATCH_SIZE = int(os.getenv("EVENT_WORKER_BATCH_SIZE", "25"))
-WORKER_POLL_SECONDS = float(os.getenv("EVENT_WORKER_POLL_SECONDS", "1.0"))
+WORKER_BATCH_SIZE = int(os.getenv("EVENT_WORKER_BATCH_SIZE", "5"))
+WORKER_POLL_SECONDS = float(os.getenv("EVENT_WORKER_POLL_SECONDS", "3.0"))
 WORKER_STALE_LOCK_SECONDS = int(os.getenv("EVENT_WORKER_STALE_LOCK_SECONDS", "600"))
 OUTBOX_MAX_ATTEMPTS = int(os.getenv("EVENT_OUTBOX_MAX_ATTEMPTS", "8"))
 RETRY_DELAYS = [30, 120, 600, 1800, 3600, 7200, 14400, 28800]
@@ -46,6 +46,30 @@ def _next_attempt_after(attempts: int) -> datetime:
 
 def _event_names(events: list[EventData]) -> str:
     return ", ".join(sorted({event.event_name for event in events}))
+
+
+async def _log_secondary_failure(
+    db,
+    client_id: int,
+    channel: str,
+    event_names: str,
+    event_count: int,
+    error_message: str,
+    ip_address: str | None,
+) -> None:
+    try:
+        db.add(EventLog(
+            client_id=client_id,
+            event_name=f"{channel}:{event_names}"[:255],
+            event_count=event_count,
+            status="failed",
+            error_message=str(error_message)[:500],
+            ip_address=ip_address,
+        ))
+        await db.commit()
+    except Exception as log_error:
+        await db.rollback()
+        logger.warning(f"Secondary failure logging failed: {log_error}")
 
 
 async def enqueue_events(
@@ -157,13 +181,32 @@ async def process_outbox_row(row_id: int) -> None:
 
             if client.tiktok_pixel_id and client.tiktok_access_token:
                 try:
-                    await send_to_tiktok(client, events)
+                    tiktok_result = await send_to_tiktok(client, events)
+                    if not tiktok_result or tiktok_result.get("code") not in (0, None):
+                        await _log_secondary_failure(
+                            db,
+                            client.id,
+                            "TikTok",
+                            event_names,
+                            len(events),
+                            tiktok_result or "TikTok send failed",
+                            context.get("ip_address"),
+                        )
                 except Exception as secondary_error:
                     logger.warning(f"[{client.name}] TikTok secondary send failed: {secondary_error}")
+                    await _log_secondary_failure(
+                        db,
+                        client.id,
+                        "TikTok",
+                        event_names,
+                        len(events),
+                        str(secondary_error),
+                        context.get("ip_address"),
+                    )
 
             if client.ga4_measurement_id and client.ga4_api_secret:
                 try:
-                    await send_to_ga4(
+                    ga4_result = await send_to_ga4(
                         events=events_data,
                         measurement_id=client.ga4_measurement_id,
                         api_secret=client.ga4_api_secret,
@@ -171,8 +214,27 @@ async def process_outbox_row(row_id: int) -> None:
                         ip_address=context.get("ip_address"),
                         user_agent=context.get("user_agent") or "",
                     )
+                    if ga4_result and not ga4_result.get("ok", True):
+                        await _log_secondary_failure(
+                            db,
+                            client.id,
+                            "GA4",
+                            event_names,
+                            len(events),
+                            ga4_result.get("error") or ga4_result,
+                            context.get("ip_address"),
+                        )
                 except Exception as secondary_error:
                     logger.warning(f"[{client.name}] GA4 secondary send failed: {secondary_error}")
+                    await _log_secondary_failure(
+                        db,
+                        client.id,
+                        "GA4",
+                        event_names,
+                        len(events),
+                        str(secondary_error),
+                        context.get("ip_address"),
+                    )
 
             if client.webhook_url:
                 for event_data in events_data:
@@ -189,6 +251,15 @@ async def process_outbox_row(row_id: int) -> None:
                         )
                     except Exception as secondary_error:
                         logger.warning(f"[{client.name}] Outbound webhook failed: {secondary_error}")
+                        await _log_secondary_failure(
+                            db,
+                            client.id,
+                            "Webhook",
+                            event_data.get("event_name") or "unknown",
+                            1,
+                            str(secondary_error),
+                            context.get("ip_address"),
+                        )
 
             logger.info(f"[{client.name}] Outbox row {row.id} sent ({len(events)} events).")
 
@@ -237,12 +308,16 @@ async def process_event_outbox_forever() -> None:
 
 
 if __name__ == "__main__":
+    from app.services.cleanup_service import auto_cleanup_database
+    from app.services.expiry_service import expire_old_pending_events
     from app.services.retry_service import retry_failed_events
 
     async def main() -> None:
         await asyncio.gather(
             process_event_outbox_forever(),
             retry_failed_events(),
+            auto_cleanup_database(),
+            expire_old_pending_events(),
         )
 
     asyncio.run(main())

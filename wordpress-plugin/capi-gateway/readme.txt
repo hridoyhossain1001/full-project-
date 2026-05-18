@@ -4,7 +4,7 @@ Tags: facebook, capi, server-side tracking, woocommerce, pixel, ga4, tiktok
 Requires at least: 5.8
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.1.1
+Stable tag: 1.1.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -43,6 +43,14 @@ CAPI Gateway প্লাগইন আপনার WooCommerce স্টোর�
 ক্যাশ-অন-ডেলিভারি (COD) অর্ডারের ক্ষেত্রে Purchase ইভেন্ট তখনই Facebook-এ পাঠানো হয় যখন আপনি অর্ডারটি "Completed" করেন। এতে ফেক অর্ডারের ডাটা Facebook-এ যায় না।
 
 == Changelog ==
+
+= 1.1.2 =
+* Added durable outbox-friendly tracking improvements
+* Added TikTok _ttp and ttclid capture for standard and custom events
+* Added lightweight AJAX rate limiting for frontend tracking
+* Improved checkout/cart content payloads
+* Improved custom event selector safety
+* Improved client setup instructions
 
 = 1.1.0 =
 * 🔒 Purchase event এখন blocking request — response verify করে success/failure ট্র্যাক করে
