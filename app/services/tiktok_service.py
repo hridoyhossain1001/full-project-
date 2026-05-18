@@ -44,7 +44,7 @@ def _build_tiktok_payload(client, events: List[EventData]) -> dict:
         tt_event = {
             "event": _map_event_name(event.event_name),
             "event_id": event.event_id or "",
-            "timestamp": str(event.event_time),
+            "event_time": int(event.event_time),
             "page": {
                 "url": event.event_source_url or "",
             },
