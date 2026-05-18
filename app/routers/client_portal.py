@@ -1320,8 +1320,95 @@ function send_capi_event($event_name, $url, $value, $event_id, $product_id) {{
 
     <!-- TAB: SETTINGS & SETUP -->
     <div id="tab-settings" class="tab-pane">
+
+        <!-- UPDATE CONFIGURATION FORM -->
+        <div class="card" style="margin-bottom:24px;border:1px solid rgba(79,70,229,0.3);">
+          <div class="card-title"><span class="icon">⚙️</span> আপনার Integration Settings আপডেট করুন</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+
+            <!-- LEFT: All form fields -->
+            <div>
+              <form action="/client/settings/update" method="post">
+
+                <div style="font-size:12px;color:#7e57c2;font-weight:700;text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:8px;margin-bottom:16px;">🔵 Facebook CAPI</div>
+
+                <div style="margin-bottom:14px;">
+                  <label style="display:block;font-size:13px;color:#a8b3c7;margin-bottom:6px;">Facebook Pixel ID</label>
+                  <input type="text" name="pixel_id" value="{{client.pixel_id or ''}}" style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.35);border:1px solid rgba(148,163,184,0.18);border-radius:8px;color:#fff;font-size:13px;outline:none;">
+                </div>
+
+                <div style="margin-bottom:14px;">
+                  <label style="display:block;font-size:13px;color:#a8b3c7;margin-bottom:6px;">CAPI Access Token</label>
+                  <input type="text" name="access_token" placeholder="{'[Encrypted — paste new to update]' if client.access_token else 'Paste token...'}" style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.35);border:1px solid rgba(148,163,184,0.18);border-radius:8px;color:#fff;font-size:13px;outline:none;">
+                  <div style="font-size:11px;color:#facc15;margin-top:4px;">⚠️ খালি রাখলে আগের টোকেন থাকবে।</div>
+                </div>
+
+                <div style="margin-bottom:14px;">
+                  <label style="display:block;font-size:13px;color:#a8b3c7;margin-bottom:6px;">Test Event Code (FB &amp; TikTok Testing)</label>
+                  <input type="text" name="test_event_code" value="{{client.test_event_code or ''}}" placeholder="TEST12345" style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.35);border:1px solid rgba(148,163,184,0.18);border-radius:8px;color:#fff;font-size:13px;outline:none;">
+                  <div style="font-size:11px;color:#94a3b8;margin-top:4px;">লাইভ ট্র্যাকিংয়ে খালি রাখুন।</div>
+                </div>
+
+                <div style="font-size:12px;color:#9575cd;font-weight:700;text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:8px;margin-bottom:16px;margin-top:20px;">🎵 TikTok CAPI</div>
+
+                <div style="margin-bottom:14px;">
+                  <label style="display:block;font-size:13px;color:#a8b3c7;margin-bottom:6px;">TikTok Pixel ID</label>
+                  <input type="text" name="tiktok_pixel_id" value="{{client.tiktok_pixel_id or ''}}" placeholder="C1234567890" style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.35);border:1px solid rgba(148,163,184,0.18);border-radius:8px;color:#fff;font-size:13px;outline:none;">
+                </div>
+
+                <div style="margin-bottom:14px;">
+                  <label style="display:block;font-size:13px;color:#a8b3c7;margin-bottom:6px;">TikTok Access Token</label>
+                  <input type="text" name="tiktok_access_token" placeholder="{'[Encrypted — paste new to update]' if client.tiktok_access_token else 'Paste TikTok token...'}" style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.35);border:1px solid rgba(148,163,184,0.18);border-radius:8px;color:#fff;font-size:13px;outline:none;">
+                  <div style="font-size:11px;color:#facc15;margin-top:4px;">⚠️ খালি রাখলে আগের টোকেন থাকবে।</div>
+                </div>
+
+                <div style="font-size:12px;color:#00a1f1;font-weight:700;text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:8px;margin-bottom:16px;margin-top:20px;">📊 GA4 Server-Side</div>
+
+                <div style="margin-bottom:14px;">
+                  <label style="display:block;font-size:13px;color:#a8b3c7;margin-bottom:6px;">GA4 Measurement ID</label>
+                  <input type="text" name="ga4_measurement_id" value="{{client.ga4_measurement_id or ''}}" placeholder="G-XXXXXXXXXX" style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.35);border:1px solid rgba(148,163,184,0.18);border-radius:8px;color:#fff;font-size:13px;outline:none;">
+                </div>
+
+                <div style="margin-bottom:20px;">
+                  <label style="display:block;font-size:13px;color:#a8b3c7;margin-bottom:6px;">GA4 API Secret</label>
+                  <input type="text" name="ga4_api_secret" placeholder="{'[Encrypted — paste new to update]' if client.ga4_api_secret else 'Paste GA4 API Secret...'}" style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.35);border:1px solid rgba(148,163,184,0.18);border-radius:8px;color:#fff;font-size:13px;outline:none;">
+                  <div style="font-size:11px;color:#facc15;margin-top:4px;">⚠️ খালি রাখলে আগের secret থাকবে।</div>
+                </div>
+
+                <div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:16px;">
+                  <button type="submit" class="btn-sm btn-primary" style="padding:10px 24px;font-size:14px;">💾 Settings সংরক্ষণ করুন</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- RIGHT: Quick Info Box -->
+            <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(79,70,229,0.15);border-radius:12px;padding:20px;height:fit-content;">
+              <h4 style="color:#fff;margin:0 0 16px 0;font-size:14px;">💡 জানা দরকার</h4>
+              <div style="font-size:13px;color:#94a3b8;line-height:1.9;">
+                <div style="margin-bottom:12px;padding:10px;background:rgba(79,70,229,0.08);border-radius:8px;border-left:3px solid #4f46e5;">
+                  <strong style="color:#a5b4fc;">Facebook CAPI:</strong><br>
+                  আপনার FB Pixel ID এবং CAPI Token সঠিক থাকলে ইভেন্টগুলো Facebook-এ যাবে।
+                </div>
+                <div style="margin-bottom:12px;padding:10px;background:rgba(149,117,205,0.08);border-radius:8px;border-left:3px solid #9575cd;">
+                  <strong style="color:#ce93d8;">TikTok CAPI:</strong><br>
+                  TikTok Pixel ID এবং Access Token দিলে ইভেন্ট TikTok-এও যাবে।
+                </div>
+                <div style="margin-bottom:12px;padding:10px;background:rgba(0,161,241,0.08);border-radius:8px;border-left:3px solid #00a1f1;">
+                  <strong style="color:#7dd3fc;">GA4 Server-Side:</strong><br>
+                  Measurement ID এবং API Secret দিলে GA4-তেও ডেটা যাবে।
+                </div>
+                <div style="padding:10px;background:rgba(250,204,21,0.06);border-radius:8px;border-left:3px solid #facc15;">
+                  <strong style="color:#fde68a;">Test Event Code:</strong><br>
+                  শুধু টেস্টিং করার সময় এই কোড দিন। লাইভে অবশ্যই খালি রাখুন!
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {instructions_html}
         
+
 
         <div class="card" style="margin-bottom:24px;border:1px solid rgba(16,185,129,0.2);margin-top:24px;">
           <div class="card-title">🧪 Event Testing & Debug</div>
@@ -1732,3 +1819,51 @@ function send_capi_event($event_name, $url, $value, $event_id, $product_id) {{
 
     return HTMLResponse(client_html(f"Dashboard — {client.name}", body))
 
+
+@router.post("/client/settings/update", include_in_schema=False)
+@limiter.limit("10/minute")
+async def client_settings_update(
+    request: Request,
+    pixel_id: str = Form(""),
+    access_token: str = Form(""),
+    test_event_code: str = Form(""),
+    tiktok_pixel_id: str = Form(""),
+    tiktok_access_token: str = Form(""),
+    ga4_measurement_id: str = Form(""),
+    ga4_api_secret: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    client = await get_client_from_portal_session(request, db)
+    if not client or not client.is_active:
+        return RedirectResponse(url="/client", status_code=303)
+
+    # ─── Validate Pixel ID if provided ─────────────────────────────────────
+    if pixel_id and pixel_id.strip():
+        if not pixel_id.strip().isdigit():
+            from urllib.parse import urlencode
+            q = urlencode({"settings_msg": "Pixel ID শুধু সংখ্যা হতে হবে।", "settings_type": "error"})
+            return RedirectResponse(url=f"/client/dashboard?{q}#tab-settings", status_code=303)
+        client.pixel_id = pixel_id.strip()
+
+    # ─── Update non-sensitive fields always ─────────────────────────────────
+    client.test_event_code = test_event_code.strip() if test_event_code and test_event_code.strip() else None
+    client.tiktok_pixel_id = tiktok_pixel_id.strip() if tiktok_pixel_id and tiktok_pixel_id.strip() else None
+    client.ga4_measurement_id = ga4_measurement_id.strip() if ga4_measurement_id and ga4_measurement_id.strip() else None
+
+    # ─── Only update encrypted tokens if new value provided ──────────────────
+    if access_token and access_token.strip():
+        client.access_token = encrypt_token(access_token.strip())
+    if tiktok_access_token and tiktok_access_token.strip():
+        client.tiktok_access_token = encrypt_token(tiktok_access_token.strip())
+    if ga4_api_secret and ga4_api_secret.strip():
+        client.ga4_api_secret = encrypt_token(ga4_api_secret.strip())
+
+    await db.commit()
+
+    # Clear cache so changes take effect immediately
+    from app.dependencies import clear_client_cache
+    clear_client_cache(client.api_key)
+
+    from urllib.parse import urlencode
+    q = urlencode({"settings_msg": "✅ Settings সফলভাবে আপডেট হয়েছে!", "settings_type": "success"})
+    return RedirectResponse(url=f"/client/dashboard?{q}#settings", status_code=303)

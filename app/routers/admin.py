@@ -1483,6 +1483,7 @@ async def admin_clients(
 
                 <div style="display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:16px">
                   <a href="/api/v1/admin/client/{c.id}/instructions" class="btn-sm btn-info" style="text-decoration:none">📋 Instructions</a>
+                  <a href="/api/v1/admin/client/{c.id}/edit" class="btn-sm btn-primary" style="text-decoration:none">✏️ Edit</a>
                   <form method="post" action="/api/v1/admin/client/{c.id}/{toggle_action}" style="margin:0">
                     <input type="hidden" name="csrf_token" value="{csrf_token}">
                     <button type="submit" class="btn-sm btn-danger">{toggle_label}</button>
@@ -1518,6 +1519,233 @@ async def admin_clients(
     """
     return HTMLResponse(base_html("Clients", body, msg, msg_type, active_page="clients"))
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# EDIT CLIENT — GET & POST
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/admin/client/{client_id}/edit", response_class=HTMLResponse, include_in_schema=False)
+async def edit_client_form(
+    client_id: int,
+    request: Request,
+    username: str = Depends(verify_admin),
+    db: AsyncSession = Depends(get_db),
+    msg: str = "",
+    msg_type: str = "success",
+):
+    result = await db.execute(select(Client).where(Client.id == client_id))
+    client = result.scalar_one_or_none()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    csrf_token = create_admin_csrf_token(username)
+    safe_name = html.escape(client.name or "", quote=True)
+    safe_pixel = html.escape(client.pixel_id or "", quote=True)
+    safe_domain = html.escape(client.domain or "", quote=True)
+    safe_test_code = html.escape(client.test_event_code or "", quote=True)
+    safe_tiktok_pixel = html.escape(client.tiktok_pixel_id or "", quote=True)
+    safe_ga4_id = html.escape(client.ga4_measurement_id or "", quote=True)
+    safe_webhook = html.escape(client.webhook_url or "", quote=True)
+    has_access_token = bool(client.access_token)
+    has_tiktok_token = bool(client.tiktok_access_token)
+    has_ga4_secret = bool(client.ga4_api_secret)
+    deferred_checked = 'checked' if getattr(client, 'deferred_purchase', False) else ''
+
+    body = f"""
+    <div class="page-header" style="margin-bottom:24px;">
+      <div>
+        <h1 class="page-title">✏️ Edit Client</h1>
+        <p class="page-sub">Update settings for <strong>{safe_name}</strong></p>
+      </div>
+      <div class="header-actions">
+        <a href="/api/v1/admin/clients" class="btn btn-outline" style="text-decoration:none">← Back to Clients</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h2 class="card-title">🔧 Client Configuration</h2></div>
+      <div style="padding:24px;">
+        <form method="post" action="/api/v1/admin/client/{client_id}/edit">
+          <input type="hidden" name="csrf_token" value="{csrf_token}">
+
+          <div class="layout-grid" style="grid-template-columns: 1fr 1fr; gap: 28px;">
+
+            <!-- LEFT COLUMN: Core Settings -->
+            <div>
+              <div style="font-size:13px;color:#7e57c2;font-weight:700;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:16px;">🔵 Core Settings (Facebook CAPI)</div>
+
+              <div class="form-group">
+                <label>ক্লায়েন্টের নাম *</label>
+                <input type="text" name="name" value="{safe_name}" required>
+              </div>
+
+              <div class="form-group">
+                <label>Facebook Pixel ID *</label>
+                <input type="text" name="pixel_id" value="{safe_pixel}" required>
+                <div class="hint">FB Events Manager → Settings → Pixel ID</div>
+              </div>
+
+              <div class="form-group">
+                <label>CAPI Access Token</label>
+                <input type="text" name="access_token" placeholder="{'[Encrypted — paste new to update]' if has_access_token else 'EAAxxxx...'}">
+                <div class="hint" style="color:#facc15">⚠️ খালি রাখলে বর্তমান টোকেন রাখা থাকবে।</div>
+              </div>
+
+              <div class="form-group">
+                <label>Website Domain (Security)</label>
+                <input type="text" name="domain" value="{safe_domain}" placeholder="buykori.me">
+                <div class="hint">🔒 শুধু এই ডোমেইন থেকে API Key ব্যবহার করতে পারবে।</div>
+              </div>
+
+              <div class="form-group">
+                <label>Test Event Code (Optional)</label>
+                <input type="text" name="test_event_code" value="{safe_test_code}" placeholder="TEST12345">
+                <div class="hint">শুধু টেস্টিংয়ের সময় দিন। লাইভে খালি রাখুন।</div>
+              </div>
+
+              <div class="form-group" style="margin-top:16px;">
+                <label style="display:flex;align-items:center;gap:10px;cursor:pointer;color:#fff;font-weight:600">
+                  <input type="checkbox" name="deferred_purchase" value="1" {deferred_checked} style="width:18px;height:18px;accent-color:#7e57c2;cursor:pointer;">
+                  🔄 Deferred Purchase সচল রাখুন
+                </label>
+                <div class="hint">COD ব্যবসার জন্য — Purchase event অর্ডার কনফার্মের পরে যাবে।</div>
+              </div>
+
+              <div class="form-group">
+                <label>Custom Webhook URL (Outbound)</label>
+                <input type="text" name="webhook_url" value="{safe_webhook}" placeholder="https://your-server.com/webhook">
+                <div class="hint">প্রতিটি event-এ এই URL-এ data forward হবে।</div>
+              </div>
+            </div>
+
+            <!-- RIGHT COLUMN: Optional Integrations -->
+            <div>
+              <div style="font-size:13px;color:#9575cd;font-weight:700;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:16px;">🎵 TikTok CAPI (Optional)</div>
+
+              <div class="form-group">
+                <label>TikTok Pixel ID</label>
+                <input type="text" name="tiktok_pixel_id" value="{safe_tiktok_pixel}" placeholder="C1234567890">
+              </div>
+
+              <div class="form-group">
+                <label>TikTok Access Token</label>
+                <input type="text" name="tiktok_access_token" placeholder="{'[Encrypted — paste new to update]' if has_tiktok_token else 'Paste TikTok token...'}">
+                <div class="hint" style="color:#facc15">⚠️ খালি রাখলে বর্তমান টোকেন রাখা থাকবে।</div>
+              </div>
+
+              <div style="font-size:13px;color:#00a1f1;font-weight:700;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:16px;margin-top:24px;">📊 GA4 Server-Side (Optional)</div>
+
+              <div class="form-group">
+                <label>GA4 Measurement ID</label>
+                <input type="text" name="ga4_measurement_id" value="{safe_ga4_id}" placeholder="G-XXXXXXXXXX">
+              </div>
+
+              <div class="form-group">
+                <label>GA4 API Secret</label>
+                <input type="text" name="ga4_api_secret" placeholder="{'[Encrypted — paste new to update]' if has_ga4_secret else 'Paste GA4 API Secret...'}">
+                <div class="hint" style="color:#facc15">⚠️ খালি রাখলে বর্তমান secret রাখা থাকবে।</div>
+              </div>
+            </div>
+
+          </div>
+
+          <div style="margin-top:28px;border-top:1px solid var(--border);padding-top:20px;display:flex;justify-content:flex-end;gap:12px;">
+            <a href="/api/v1/admin/clients" class="btn btn-outline" style="text-decoration:none">বাতিল করুন</a>
+            <button type="submit" class="btn btn-primary">💾 পরিবর্তন সংরক্ষণ করুন</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    """
+    return HTMLResponse(base_html(f"Edit — {client.name}", body, msg, msg_type, active_page="clients"))
+
+
+@router.post("/admin/client/{client_id}/edit", include_in_schema=False)
+async def edit_client_submit(
+    client_id: int,
+    request: Request,
+    username: str = Depends(verify_admin),
+    csrf_token: str = Form(...),
+    name: str = Form(...),
+    pixel_id: str = Form(...),
+    access_token: str = Form(""),
+    test_event_code: str = Form(""),
+    domain: str = Form(""),
+    tiktok_pixel_id: str = Form(""),
+    tiktok_access_token: str = Form(""),
+    ga4_measurement_id: str = Form(""),
+    ga4_api_secret: str = Form(""),
+    deferred_purchase: str = Form(None),
+    webhook_url: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    verify_admin_csrf_token(csrf_token, username)
+
+    result = await db.execute(select(Client).where(Client.id == client_id))
+    client = result.scalar_one_or_none()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    # ─── Validate ───────────────────────────────────────────────────────────
+    name = name.strip()
+    pixel_id = pixel_id.strip()
+    if not name or len(name) > 100:
+        from urllib.parse import urlencode
+        q = urlencode({"msg": "নাম ১-১০০ অক্ষরের মধ্যে হতে হবে।", "msg_type": "error"})
+        return RedirectResponse(url=f"/api/v1/admin/client/{client_id}/edit?{q}", status_code=303)
+    if not pixel_id.isdigit():
+        from urllib.parse import urlencode
+        q = urlencode({"msg": "Pixel ID শুধু সংখ্যা হতে হবে।", "msg_type": "error"})
+        return RedirectResponse(url=f"/api/v1/admin/client/{client_id}/edit?{q}", status_code=303)
+
+    # ─── Domain sanitize ─────────────────────────────────────────────────────
+    clean_domain = None
+    if domain and domain.strip():
+        clean_domain = domain.strip().lower()
+        for prefix in ["https://", "http://", "www."]:
+            clean_domain = clean_domain.removeprefix(prefix)
+        clean_domain = clean_domain.rstrip("/")
+
+    # ─── Webhook validation ──────────────────────────────────────────────────
+    clean_webhook = webhook_url.strip() if webhook_url and webhook_url.strip() else None
+    if clean_webhook:
+        parsed = urlparse(clean_webhook)
+        if parsed.scheme not in ("https", "http") or not parsed.netloc:
+            from urllib.parse import urlencode
+            q = urlencode({"msg": "Webhook URL must be a valid http(s) URL.", "msg_type": "error"})
+            return RedirectResponse(url=f"/api/v1/admin/client/{client_id}/edit?{q}", status_code=303)
+        if not _webhook_url_allowed(clean_webhook):
+            from urllib.parse import urlencode
+            q = urlencode({"msg": "Webhook URL is not allowed.", "msg_type": "error"})
+            return RedirectResponse(url=f"/api/v1/admin/client/{client_id}/edit?{q}", status_code=303)
+
+    # ─── Apply updates ───────────────────────────────────────────────────────
+    client.name = name
+    client.pixel_id = pixel_id
+    client.domain = clean_domain
+    client.test_event_code = test_event_code.strip() if test_event_code and test_event_code.strip() else None
+    client.deferred_purchase = (deferred_purchase == "1")
+    client.webhook_url = clean_webhook
+    client.tiktok_pixel_id = tiktok_pixel_id.strip() if tiktok_pixel_id and tiktok_pixel_id.strip() else None
+    client.ga4_measurement_id = ga4_measurement_id.strip() if ga4_measurement_id and ga4_measurement_id.strip() else None
+
+    # Only update encrypted tokens if new value was provided
+    if access_token and access_token.strip():
+        client.access_token = encrypt_token(access_token.strip())
+    if tiktok_access_token and tiktok_access_token.strip():
+        client.tiktok_access_token = encrypt_token(tiktok_access_token.strip())
+    if ga4_api_secret and ga4_api_secret.strip():
+        client.ga4_api_secret = encrypt_token(ga4_api_secret.strip())
+
+    await log_admin_action(db, request, username, "client.updated", client_id, f"Client {name} updated")
+    await db.commit()
+
+    from app.dependencies import clear_client_cache
+    clear_client_cache(client.api_key)
+
+    from urllib.parse import urlencode
+    q = urlencode({"msg": f"✅ {name} সফলভাবে আপডেট হয়েছে!", "msg_type": "success"})
+    return RedirectResponse(url=f"/api/v1/admin/clients?{q}", status_code=303)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
