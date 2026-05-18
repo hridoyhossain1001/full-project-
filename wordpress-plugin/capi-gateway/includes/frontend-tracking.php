@@ -94,7 +94,7 @@ function capigw_get_tracker_js() {
     if (!cfg.ajax_url) return;
 
     // ─── Helper: Send event via AJAX (cache-safe) ──────────────────────
-    function sendEvent(eventName, eventData) {
+    function sendEvent(eventName, eventData, synchronous) {
         var formData = new FormData();
         formData.append('action', 'capigw_track_event');
         formData.append('nonce', cfg.nonce);
@@ -102,14 +102,24 @@ function capigw_get_tracker_js() {
         formData.append('event_data', JSON.stringify(eventData || {}));
         formData.append('page_url', window.location.href);
         formData.append('page_title', document.title);
-
-        // Get fbp and fbc cookies for Facebook matching
         formData.append('fbp', getCookie('_fbp') || '');
         formData.append('fbc', getCookie('_fbc') || '');
 
-        navigator.sendBeacon
-            ? navigator.sendBeacon(cfg.ajax_url, formData)
-            : fetch(cfg.ajax_url, { method: 'POST', body: formData, keepalive: true });
+        // synchronous=true — পেজ নেভিগেট হওয়ার আগে নিশ্চিত পাঠাতে
+        if (synchronous) {
+            try {
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', cfg.ajax_url, false); // false = sync
+                xhr.send(formData);
+            } catch(e) {}
+            return;
+        }
+
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon(cfg.ajax_url, formData);
+        } else {
+            fetch(cfg.ajax_url, { method: 'POST', body: formData, keepalive: true });
+        }
     }
 
     function getCookie(name) {
@@ -134,21 +144,39 @@ function capigw_get_tracker_js() {
         });
     }
 
-    // ─── 3. AddToCart (WooCommerce AJAX hook) ──────────────────────────
+    // ─── 3. AddToCart ──────────────────────────────────────────────────
+    // BUG FIX: একটাই পদ্ধতি ব্যবহার করো — jQuery `added_to_cart` থাকলে সেটা,
+    // না থাকলে click listener। দুটো একসাথে চললে double-fire হয়।
     if (cfg.events && cfg.events.addtocart) {
-        // Standard WooCommerce add-to-cart button click
+        var addToCartFiredViaAjax = false;
+
+        // jQuery AJAX event — most reliable (fires AFTER WooCommerce confirms add)
+        if (typeof jQuery !== 'undefined') {
+            jQuery(document.body).on('added_to_cart', function(e, fragments, hash, $btn) {
+                addToCartFiredViaAjax = true;
+                var pid = $btn ? $btn.attr('data-product_id') : '';
+                var pname = $btn ? $btn.attr('data-product_name') : '';
+                var pprice = $btn ? parseFloat($btn.attr('data-product_price') || 0) : 0;
+                sendEvent('AddToCart', {
+                    content_ids: [pid || ''],
+                    content_name: pname || '',
+                    content_type: 'product',
+                    value: pprice,
+                    currency: (cfg.product ? cfg.product.currency : 'BDT')
+                });
+            });
+        }
+
+        // Click fallback — শুধু তখনই চলবে যখন jQuery AJAX event চলেনি
+        // (single product page with form submit, or non-AJAX themes)
         document.addEventListener('click', function(e) {
             var btn = e.target.closest('.add_to_cart_button, .single_add_to_cart_button');
             if (!btn) return;
 
+            // AJAX-enabled বাটনে click listener দরকার নেই — jQuery event handle করবে
+            if (btn.classList.contains('ajax_add_to_cart')) return;
+
             var productData = {};
-
-            // Try to get product data from button attributes
-            var productId = btn.getAttribute('data-product_id') || '';
-            var productName = btn.getAttribute('data-product_name') || '';
-            var productPrice = btn.getAttribute('data-product_price') || '';
-
-            // If on single product page, use config data
             if (cfg.product) {
                 productData = {
                     content_ids: [String(cfg.product.id)],
@@ -157,29 +185,18 @@ function capigw_get_tracker_js() {
                     value: cfg.product.price,
                     currency: cfg.product.currency
                 };
-            } else if (productId) {
+            } else {
+                var pid = btn.getAttribute('data-product_id') || '';
                 productData = {
-                    content_ids: [productId],
-                    content_name: productName,
+                    content_ids: [pid],
+                    content_name: btn.getAttribute('data-product_name') || '',
                     content_type: 'product',
-                    value: parseFloat(productPrice) || 0,
-                    currency: cfg.product ? cfg.product.currency : 'BDT'
+                    value: parseFloat(btn.getAttribute('data-product_price') || 0),
+                    currency: 'BDT'
                 };
             }
-
             sendEvent('AddToCart', productData);
         });
-
-        // WooCommerce AJAX add-to-cart event (for themes using AJAX)
-        if (typeof jQuery !== 'undefined') {
-            jQuery(document.body).on('added_to_cart', function(e, fragments, hash, btn) {
-                var pid = btn ? btn.attr('data-product_id') : '';
-                sendEvent('AddToCart', {
-                    content_ids: [pid],
-                    content_type: 'product'
-                });
-            });
-        }
     }
 
     // ─── 4. InitiateCheckout ───────────────────────────────────────────
@@ -192,60 +209,122 @@ function capigw_get_tracker_js() {
         sendEvent('ViewCart', {});
     }
 
-    // ─── 6. RemoveFromCart (WooCommerce AJAX) ──────────────────────────
+    // ─── 6. RemoveFromCart ─────────────────────────────────────────────
+    // BUG FIX:
+    // (a) Classic cart-এ remove বাটন ক্লিক করলে পেজ reload হয়।
+    //     sendBeacon() পাঠানোর আগেই navigate হতে পারে।
+    //     তাই synchronous XHR দিয়ে পাঠাই।
+    // (b) WooCommerce Blocks cart-এ বাটনের class আলাদা।
+    // (c) jQuery `removed_from_cart` event — AJAX removal-এ এটাই reliable।
+    //     দুটো method এক সাথে না চালিয়ে flag দিয়ে deduplicate করো।
     if (cfg.events && cfg.events.removefromcart) {
-        // WooCommerce remove-from-cart click
-        document.addEventListener('click', function(e) {
-            var btn = e.target.closest('.remove_from_cart_button, a.remove');
-            if (!btn) return;
-            var pid = btn.getAttribute('data-product_id') || '';
-            sendEvent('RemoveFromCart', {
-                content_ids: [pid],
-                content_type: 'product'
-            });
-        });
+        var removeFiredViaJQ = false;
 
-        // jQuery event fired by WooCommerce after cart item removal
+        // jQuery AJAX removal event (AJAX-enabled cart/Blocks)
         if (typeof jQuery !== 'undefined') {
-            jQuery(document.body).on('removed_from_cart', function() {
+            jQuery(document.body).on('removed_from_cart', function(e, fragments, hash, $btn) {
+                removeFiredViaJQ = true;
+                var pid = $btn ? $btn.attr('data-product_id') : '';
+                sendEvent('RemoveFromCart', {
+                    content_ids: [pid || ''],
+                    content_type: 'product'
+                });
+            });
+
+            // WooCommerce Blocks fires wc-blocks_removed_from_cart
+            jQuery(document.body).on('wc-blocks_removed_from_cart', function() {
+                removeFiredViaJQ = true;
                 sendEvent('RemoveFromCart', { content_type: 'product' });
             });
         }
-    }
 
-    // ─── 7. AddPaymentInfo (Checkout payment method selection) ─────────
-    if (cfg.events && cfg.events.addpaymentinfo && cfg.page_type === 'checkout') {
-        var paymentFired = false;
-        document.addEventListener('change', function(e) {
-            if (paymentFired) return;
-            if (e.target.name === 'payment_method' || e.target.closest('.wc_payment_methods')) {
-                paymentFired = true;
-                sendEvent('AddPaymentInfo', {
-                    payment_method: e.target.value || ''
-                });
+        // Click listener — Classic cart (non-AJAX) ব্যাকআপ
+        // Selectors: WC classic = "a.remove", WC Blocks = button with aria-label containing "Remove"
+        document.addEventListener('click', function(e) {
+            // Selector 1: Classic WooCommerce cart remove link
+            var btn = e.target.closest('a.remove[data-product_id], .remove_from_cart_button');
+
+            // Selector 2: WooCommerce Blocks remove button
+            if (!btn) {
+                btn = e.target.closest('button.wc-block-cart-item__remove-link, [aria-label*="Remove"]');
             }
+
+            if (!btn) return;
+
+            // 50ms অপেক্ষা করো — jQuery event আগে ফায়ার হলে skip করো
+            setTimeout(function() {
+                if (removeFiredViaJQ) { removeFiredViaJQ = false; return; }
+                var pid = btn.getAttribute('data-product_id') || '';
+
+                // Classic cart: page navigate হবে — synchronous পাঠাও
+                var isClassicRemove = btn.tagName === 'A' && btn.getAttribute('href');
+                sendEvent('RemoveFromCart', {
+                    content_ids: [pid],
+                    content_type: 'product'
+                }, isClassicRemove);
+            }, 0);
         });
     }
 
-    // ─── 8. Lead (Form Submissions — Contact Forms, Newsletters) ──────
+    // ─── 7. AddPaymentInfo ─────────────────────────────────────────────
+    // BUG FIX: WooCommerce Blocks checkout-এ radio input নেই।
+    // Classic: input[name="payment_method"] change event
+    // Blocks: MutationObserver + custom jQuery event
+    if (cfg.events && cfg.events.addpaymentinfo && cfg.page_type === 'checkout') {
+        var paymentFired = false;
+
+        function fireAddPaymentInfo(method) {
+            if (paymentFired) return;
+            paymentFired = true;
+            sendEvent('AddPaymentInfo', { payment_method: method || '' });
+        }
+
+        // Classic WooCommerce checkout — radio button change
+        document.addEventListener('change', function(e) {
+            if (e.target.name === 'payment_method') {
+                fireAddPaymentInfo(e.target.value);
+            }
+        });
+
+        // WooCommerce Blocks checkout — custom jQuery event
+        if (typeof jQuery !== 'undefined') {
+            jQuery(document.body).on('payment_method_selected', function() {
+                var sel = document.querySelector('.wc-block-components-radio-control__input:checked');
+                fireAddPaymentInfo(sel ? sel.value : '');
+            });
+        }
+
+        // Blocks: observe DOM for payment method radio changes
+        if (typeof MutationObserver !== 'undefined') {
+            var payObserver = new MutationObserver(function() {
+                var checked = document.querySelector(
+                    '.wc-block-components-radio-control__input:checked, ' +
+                    'input[name="radio-control-wc-payment-method-options"]:checked'
+                );
+                if (checked) fireAddPaymentInfo(checked.value);
+            });
+            var payContainer = document.querySelector('.wc-block-checkout, #payment');
+            if (payContainer) {
+                payObserver.observe(payContainer, { subtree: true, attributes: true, childList: true });
+            }
+        }
+    }
+
+    // ─── 8. Lead (Form Submissions) ────────────────────────────────────
     if (cfg.events && cfg.events.lead) {
         document.addEventListener('submit', function(e) {
             var form = e.target;
-            // Skip WooCommerce checkout/cart/search forms
             if (form.classList.contains('woocommerce-checkout') ||
                 form.classList.contains('woocommerce-cart-form') ||
                 form.getAttribute('role') === 'search') return;
-            // Skip WP login/register forms
             if (form.id === 'loginform' || form.id === 'registerform') return;
             sendEvent('Lead', {});
         });
     }
 
-    // ─── 9. Search (WordPress Site Search) ─────────────────────────────
+    // ─── 9. Search ─────────────────────────────────────────────────────
     if (cfg.events && cfg.events.search && cfg.page_type === 'search' && cfg.search_string) {
-        sendEvent('Search', {
-            search_string: cfg.search_string
-        });
+        sendEvent('Search', { search_string: cfg.search_string });
     }
 
 })();

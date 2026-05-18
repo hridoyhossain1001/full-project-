@@ -24,6 +24,7 @@ class Client(Base):
     # ─── TikTok CAPI Integration ──────────────────────────────────────────
     tiktok_pixel_id = Column(String, nullable=True)               # TikTok Pixel ID (optional)
     tiktok_access_token = Column(String, nullable=True)           # TikTok Access Token (encrypted, optional)
+    tiktok_test_event_code = Column(String, nullable=True)        # TikTok Test Event Code (ফেসবুক থেকে আলাদা)
     # ─── GA4 Server-Side Integration ──────────────────────────────────────
     ga4_measurement_id = Column(String, nullable=True)            # GA4 Measurement ID (e.g. G-XXXXX)
     ga4_api_secret = Column(String, nullable=True)                # GA4 API Secret (encrypted)

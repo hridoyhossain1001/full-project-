@@ -1365,6 +1365,12 @@ function send_capi_event($event_name, $url, $value, $event_id, $product_id) {{
                   <div style="font-size:11px;color:#facc15;margin-top:4px;">⚠️ খালি রাখলে আগের টোকেন থাকবে।</div>
                 </div>
 
+                <div style="margin-bottom:14px;">
+                  <label style="display:block;font-size:13px;color:#a8b3c7;margin-bottom:6px;">TikTok Test Event Code (TikTok Testing)</label>
+                  <input type="text" name="tiktok_test_event_code" value="{html.escape(client.tiktok_test_event_code or '', quote=True)}" placeholder="TEST38483" style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.35);border:1px solid rgba(148,163,184,0.18);border-radius:8px;color:#fff;font-size:13px;outline:none;">
+                  <div style="font-size:11px;color:#94a3b8;margin-top:4px;">TikTok Events Manager থেকে টেস্ট কোড নিয়ে এখানে দিন। লাইভে খালি রাখুন।</div>
+                </div>
+
                 <div style="font-size:12px;color:#00a1f1;font-weight:700;text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:8px;margin-bottom:16px;margin-top:20px;">📊 GA4 Server-Side</div>
 
                 <div style="margin-bottom:14px;">
@@ -1832,6 +1838,7 @@ async def client_settings_update(
     test_event_code: str = Form(""),
     tiktok_pixel_id: str = Form(""),
     tiktok_access_token: str = Form(""),
+    tiktok_test_event_code: str = Form(""),
     ga4_measurement_id: str = Form(""),
     ga4_api_secret: str = Form(""),
     db: AsyncSession = Depends(get_db),
@@ -1851,6 +1858,7 @@ async def client_settings_update(
     # ─── Update non-sensitive fields always ─────────────────────────────────
     client.test_event_code = test_event_code.strip() if test_event_code and test_event_code.strip() else None
     client.tiktok_pixel_id = tiktok_pixel_id.strip() if tiktok_pixel_id and tiktok_pixel_id.strip() else None
+    client.tiktok_test_event_code = tiktok_test_event_code.strip() if tiktok_test_event_code and tiktok_test_event_code.strip() else None
     client.ga4_measurement_id = ga4_measurement_id.strip() if ga4_measurement_id and ga4_measurement_id.strip() else None
 
     # ─── Only update encrypted tokens if new value provided ──────────────────

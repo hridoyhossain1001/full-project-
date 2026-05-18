@@ -79,6 +79,91 @@ function capigw_deactivate() {
     if ( function_exists( 'as_unschedule_all_actions' ) ) {
         as_unschedule_all_actions( 'capigw_retry_confirm' );
     }
+
+    // প্লাগিন বন্ধ করলে ক্যাশ ক্লিয়ার করে দাও যাতে ট্র্যাকিং স্ক্রিপ্ট সঙ্গে সঙ্গে সরে যায়
+    capigw_purge_all_caches();
+}
+
+// ─── Auto-Purge Cache on Settings Save ────────────────────────────────────────
+// সেটিংস সেভ করার সাথে সাথে ক্যাশ ক্লিয়ার করে দাও
+add_action( 'update_option_' . CAPIGW_OPTION_KEY, 'capigw_purge_all_caches', 10, 0 );
+
+/**
+ * capigw_purge_all_caches()
+ *
+ * WP Rocket, LiteSpeed, W3 Total Cache, WP Super Cache,
+ * SiteGround Optimizer, WP Fastest Cache এবং Autoptimize-র
+ * ক্যাশ স্বয়ংক্রিয়ভাবে ক্লিয়ার করে।
+ *
+ * যখন CAPI Gateway সেটিংস পরিবর্তন হয় বা প্লাগিন ডিঅ্যাক্টিভেট হয়,
+ * তখন এই ফাংশনটি কল হয়।
+ */
+function capigw_purge_all_caches() {
+    $purged = array();
+
+    // ── WP Rocket ──────────────────────────────────────────────────────
+    if ( function_exists( 'rocket_clean_domain' ) ) {
+        rocket_clean_domain();
+        $purged[] = 'WP Rocket';
+    }
+
+    // ── LiteSpeed Cache ─────────────────────────────────────────────────
+    if ( class_exists( '\LiteSpeed\Purge' ) ) {
+        do_action( 'litespeed_purge_all' );
+        $purged[] = 'LiteSpeed Cache';
+    } elseif ( defined( 'LSCWP_V' ) ) {
+        do_action( 'litespeed_purge_all' );
+        $purged[] = 'LiteSpeed Cache';
+    }
+
+    // ── W3 Total Cache ──────────────────────────────────────────────────
+    if ( function_exists( 'w3tc_flush_all' ) ) {
+        w3tc_flush_all();
+        $purged[] = 'W3 Total Cache';
+    }
+
+    // ── WP Super Cache ──────────────────────────────────────────────────
+    if ( function_exists( 'wp_cache_clear_cache' ) ) {
+        wp_cache_clear_cache();
+        $purged[] = 'WP Super Cache';
+    }
+
+    // ── SiteGround Optimizer ────────────────────────────────────────────
+    if ( class_exists( 'SiteGround_Optimizer\Supercacher\Supercacher' ) ) {
+        \SiteGround_Optimizer\Supercacher\Supercacher::purge_cache();
+        $purged[] = 'SiteGround Optimizer';
+    }
+
+    // ── WP Fastest Cache ────────────────────────────────────────────────
+    if ( isset( $GLOBALS['wp_fastest_cache'] ) && method_exists( $GLOBALS['wp_fastest_cache'], 'deleteCache' ) ) {
+        $GLOBALS['wp_fastest_cache']->deleteCache( true );
+        $purged[] = 'WP Fastest Cache';
+    }
+
+    // ── Autoptimize ─────────────────────────────────────────────────────
+    if ( class_exists( 'autoptimizeCache' ) && method_exists( 'autoptimizeCache', 'clearall' ) ) {
+        autoptimizeCache::clearall();
+        $purged[] = 'Autoptimize';
+    }
+
+    // ── Breeze (Cloudways) ──────────────────────────────────────────────
+    if ( class_exists( 'Breeze_Admin' ) ) {
+        do_action( 'breeze_clear_all_cache' );
+        $purged[] = 'Breeze';
+    }
+
+    // ── Swift Performance ───────────────────────────────────────────────
+    if ( class_exists( 'Swift_Performance_Cache' ) && method_exists( 'Swift_Performance_Cache', 'clear_all_cache' ) ) {
+        \Swift_Performance_Cache::clear_all_cache();
+        $purged[] = 'Swift Performance';
+    }
+
+    // ── Generic WordPress Object Cache (Memcache / Redis) ───────────────
+    wp_cache_flush();
+
+    if ( ! empty( $purged ) ) {
+        error_log( '[CAPI Gateway] Cache purged: ' . implode( ', ', $purged ) );
+    }
 }
 
 // ─── Helper: Get Plugin Settings ───────────────────────────────────────────────

@@ -26,7 +26,8 @@ class CachedClient:
     portal_key: str | None
     pixel_id: str
     access_token: str
-    test_event_code: str | None
+    test_event_code: str | None          # Facebook test event code
+    tiktok_test_event_code: str | None   # TikTok test event code (আলাদা)
     is_active: bool
     domain: str | None
     rate_limit: int
@@ -60,6 +61,7 @@ def _snapshot(client: Client) -> CachedClient:
         pixel_id=client.pixel_id,
         access_token=client.access_token,
         test_event_code=client.test_event_code,
+        tiktok_test_event_code=getattr(client, 'tiktok_test_event_code', None),
         is_active=client.is_active,
         domain=client.domain,
         rate_limit=client.rate_limit or 5000,

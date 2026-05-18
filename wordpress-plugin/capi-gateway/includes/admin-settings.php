@@ -32,6 +32,30 @@ function capigw_register_settings() {
     register_setting( 'capigw_settings_group', CAPIGW_OPTION_KEY, 'capigw_sanitize_settings' );
 }
 
+// ─── Admin Notice: Cache Cleared After Save ────────────────────────────────────
+add_action( 'admin_notices', 'capigw_maybe_show_cache_notice' );
+
+function capigw_maybe_show_cache_notice() {
+    $screen = get_current_screen();
+    if ( ! $screen || $screen->id !== 'toplevel_page_capi-gateway' ) {
+        return;
+    }
+
+    // Only show after a settings save (settings-updated query param)
+    if ( ! isset( $_GET['settings-updated'] ) || $_GET['settings-updated'] !== 'true' ) {
+        return;
+    }
+    ?>
+    <div class="notice notice-success is-dismissible" style="border-left-color:#4f46e5;">
+        <p>
+            <strong>⚡ CAPI Gateway:</strong>
+            সেটিংস সেভ হয়েছে এবং ওয়েবসাইটের পেজ ক্যাশ <strong>স্বয়ংক্রিয়ভাবে ক্লিয়ার</strong> করা হয়েছে।
+            আপনি যদি Cloudflare বা অন্য কোনো CDN ব্যবহার করেন, তাহলে সেখান থেকেও ম্যানুয়ালি ক্যাশ ক্লিয়ার করুন।
+        </p>
+    </div>
+    <?php
+}
+
 function capigw_sanitize_settings( $input ) {
     $sanitized = array();
     $sanitized['api_key']            = sanitize_text_field( $input['api_key'] ?? '' );

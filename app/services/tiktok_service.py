@@ -100,9 +100,12 @@ def _build_tiktok_payload(client, events: List[EventData]) -> dict:
         "data": tiktok_events,
     }
     
-    if client.test_event_code:
-        payload["test_event_code"] = client.test_event_code
-        
+    # TikTok-এর জন্য আলাদা test_event_code ব্যবহার করো
+    # tiktok_test_event_code থাকলে সেটা, নাহলে কিছুই না (FB test code TikTok-এ যাবে না)
+    tt_test_code = getattr(client, 'tiktok_test_event_code', None)
+    if tt_test_code:
+        payload["test_event_code"] = tt_test_code
+
     return payload
 
 

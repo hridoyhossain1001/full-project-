@@ -636,6 +636,11 @@ async def admin_dashboard(
                 <label>TikTok Access Token</label>
                 <input type="text" name="tiktok_access_token" placeholder="">
               </div>
+              <div class="form-group">
+                <label>TikTok Test Event Code (Optional)</label>
+                <input type="text" name="tiktok_test_event_code" placeholder="TEST38483">
+                <div class="hint">TikTok Events Manager → Test Events থেকে কোড দিন। লাইভে খালি রাখুন।</div>
+              </div>
               
               <div style="border-bottom:1px solid var(--border);margin-bottom:16px;margin-top:20px;padding-bottom:8px">
                 <div style="font-size:13px;color:#00a1f1;font-weight:600">📊 GA4 Server-Side (Optional)</div>
@@ -817,6 +822,7 @@ async def add_client(
     domain: str = Form(None),
     tiktok_pixel_id: str = Form(None),
     tiktok_access_token: str = Form(None),
+    tiktok_test_event_code: str = Form(None),
     ga4_measurement_id: str = Form(None),
     ga4_api_secret: str = Form(None),
     deferred_purchase: str = Form(None),
@@ -869,6 +875,7 @@ async def add_client(
         portal_key=secrets.token_urlsafe(24),
         tiktok_pixel_id=tiktok_pixel_id.strip() if tiktok_pixel_id and tiktok_pixel_id.strip() else None,
         tiktok_access_token=encrypt_token(tiktok_access_token.strip()) if tiktok_access_token and tiktok_access_token.strip() else None,
+        tiktok_test_event_code=tiktok_test_event_code.strip() if tiktok_test_event_code and tiktok_test_event_code.strip() else None,
         ga4_measurement_id=ga4_measurement_id.strip() if ga4_measurement_id and ga4_measurement_id.strip() else None,
         ga4_api_secret=encrypt_token(ga4_api_secret.strip()) if ga4_api_secret and ga4_api_secret.strip() else None,
         deferred_purchase=deferred_purchase == "1",
@@ -1544,6 +1551,7 @@ async def edit_client_form(
     safe_domain = html.escape(client.domain or "", quote=True)
     safe_test_code = html.escape(client.test_event_code or "", quote=True)
     safe_tiktok_pixel = html.escape(client.tiktok_pixel_id or "", quote=True)
+    safe_tiktok_test_code = html.escape(client.tiktok_test_event_code or "", quote=True)
     safe_ga4_id = html.escape(client.ga4_measurement_id or "", quote=True)
     safe_webhook = html.escape(client.webhook_url or "", quote=True)
     has_access_token = bool(client.access_token)
@@ -1633,6 +1641,12 @@ async def edit_client_form(
                 <div class="hint" style="color:#facc15">⚠️ খালি রাখলে বর্তমান টোকেন রাখা থাকবে।</div>
               </div>
 
+              <div class="form-group">
+                <label>TikTok Test Event Code (Optional)</label>
+                <input type="text" name="tiktok_test_event_code" value="{safe_tiktok_test_code}" placeholder="TEST38483">
+                <div class="hint">TikTok Events Manager → Test Events থেকে কোড দিন। লাইভে খালি রাখুন।</div>
+              </div>
+
               <div style="font-size:13px;color:#00a1f1;font-weight:700;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:16px;margin-top:24px;">📊 GA4 Server-Side (Optional)</div>
 
               <div class="form-group">
@@ -1673,6 +1687,7 @@ async def edit_client_submit(
     domain: str = Form(""),
     tiktok_pixel_id: str = Form(""),
     tiktok_access_token: str = Form(""),
+    tiktok_test_event_code: str = Form(""),
     ga4_measurement_id: str = Form(""),
     ga4_api_secret: str = Form(""),
     deferred_purchase: str = Form(None),
@@ -1727,6 +1742,7 @@ async def edit_client_submit(
     client.deferred_purchase = (deferred_purchase == "1")
     client.webhook_url = clean_webhook
     client.tiktok_pixel_id = tiktok_pixel_id.strip() if tiktok_pixel_id and tiktok_pixel_id.strip() else None
+    client.tiktok_test_event_code = tiktok_test_event_code.strip() if tiktok_test_event_code and tiktok_test_event_code.strip() else None
     client.ga4_measurement_id = ga4_measurement_id.strip() if ga4_measurement_id and ga4_measurement_id.strip() else None
 
     # Only update encrypted tokens if new value was provided
