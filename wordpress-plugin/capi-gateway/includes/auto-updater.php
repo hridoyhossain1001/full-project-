@@ -199,11 +199,26 @@ class CAPIGW_Auto_Updater {
     }
 
     private function package_url_allowed( $download_url ) {
-        $update_host  = wp_parse_url( $this->update_url, PHP_URL_HOST );
-        $package_host = wp_parse_url( $download_url, PHP_URL_HOST );
+        $update_host  = strtolower( wp_parse_url( $this->update_url, PHP_URL_HOST ) );
+        $package_host = strtolower( wp_parse_url( $download_url, PHP_URL_HOST ) );
         $scheme       = wp_parse_url( $download_url, PHP_URL_SCHEME );
 
-        return $scheme === 'https' && $update_host && $package_host && strtolower( $update_host ) === strtolower( $package_host );
+        if ( $scheme !== 'https' || ! $update_host || ! $package_host ) {
+            return false;
+        }
+
+        // Same host (normal case)
+        if ( $update_host === $package_host ) {
+            return true;
+        }
+
+        // Allow the canonical custom domain even if the client still has
+        // the old Heroku URL saved (server redirects to custom domain).
+        $allowed_hosts = array(
+            'buykori.me',
+            'www.buykori.me',
+        );
+        return in_array( $package_host, $allowed_hosts, true );
     }
 
     public function verify_downloaded_package( $reply, $package, $upgrader ) {
