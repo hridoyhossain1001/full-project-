@@ -80,6 +80,7 @@ function capigw_sanitize_settings( $input ) {
 
 // ─── AJAX: Connection Test ─────────────────────────────────────────────────────
 add_action( 'wp_ajax_capigw_test_connection', 'capigw_test_connection' );
+add_action( 'wp_ajax_capigw_check_update_now', 'capigw_check_update_now' );
 
 function capigw_test_connection() {
     check_ajax_referer( 'capigw_nonce', 'nonce' );
@@ -118,6 +119,26 @@ function capigw_test_connection() {
     } else {
         wp_send_json_error( "Server responded with HTTP $code. Response: $body" );
     }
+}
+
+function capigw_check_update_now() {
+    check_ajax_referer( 'capigw_nonce', 'nonce' );
+
+    if ( ! current_user_can( 'update_plugins' ) ) {
+        wp_send_json_error( 'Permission denied' );
+    }
+
+    if ( function_exists( 'capigw_clear_update_cache' ) ) {
+        capigw_clear_update_cache();
+    } else {
+        delete_site_transient( 'update_plugins' );
+    }
+
+    if ( function_exists( 'wp_update_plugins' ) ) {
+        wp_update_plugins();
+    }
+
+    wp_send_json_success( 'Update cache cleared. Please refresh the Plugins page or open Dashboard → Updates.' );
 }
 
 // ─── Settings Page HTML ────────────────────────────────────────────────────────
@@ -162,6 +183,8 @@ function capigw_settings_page() {
         .capigw-btn-primary:hover { background: #4338ca; color: #fff; }
         .capigw-btn-test { background: #1d2327; color: #fff; margin-right: 10px; }
         .capigw-btn-test:hover { background: #2c3338; color: #fff; }
+        .capigw-btn-secondary { background: #fff; color: #1d2327; border-color: #8c8f94; margin-right: 10px; }
+        .capigw-btn-secondary:hover { background: #f6f7f7; color: #1d2327; border-color: #646970; }
         .capigw-status { padding: 12px 14px; border-radius: 4px; margin-top: 12px; display: none; font-size: 13px; line-height: 1.45; }
         .capigw-status.success { display: block; background: #ecfdf3; color: #166534; border: 1px solid #bbf7d0; }
         .capigw-status.error { display: block; background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
@@ -355,6 +378,15 @@ function capigw_settings_page() {
                     </div>
                 </div>
 
+                <div class="capigw-card">
+                    <h2>Plugin Update</h2>
+                    <p>WordPress update notice না দেখালে এখান থেকে local update cache clear করে আবার check করতে পারবেন।</p>
+                    <button type="button" class="capigw-btn capigw-btn-secondary" id="capigw-update-btn" onclick="capigwCheckUpdateNow()">
+                        Check Update Now
+                    </button>
+                    <div id="capigw-update-status" class="capigw-status"></div>
+                </div>
+
             </div><!-- /tab-advanced -->
 
             <!-- Save (visible on all tabs) -->
@@ -452,6 +484,54 @@ function capigw_settings_page() {
                 status.textContent = '❌ Network error: ' + err.message;
                 btn.disabled = false;
                 btn.textContent = '🔍 Test Connection';
+            });
+        } catch (e) {
+            console.error(e);
+            alert("Error: " + e.message);
+        }
+    }
+    function capigwCheckUpdateNow() {
+        try {
+            var btn = document.getElementById('capigw-update-btn');
+            var status = document.getElementById('capigw-update-status');
+
+            btn.disabled = true;
+            btn.textContent = 'Checking...';
+            status.style.display = 'none';
+            status.className = 'capigw-status';
+
+            var formData = new FormData();
+            formData.append('action', 'capigw_check_update_now');
+            formData.append('nonce', '<?php echo $nonce; ?>');
+
+            var ajax_url = (typeof ajaxurl !== 'undefined') ? ajaxurl : '/wp-admin/admin-ajax.php';
+
+            fetch(ajax_url, {
+                method: 'POST',
+                body: formData,
+            })
+            .then(function(res) {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
+            .then(function(data) {
+                status.style.display = 'block';
+                if (data.success) {
+                    status.className = 'capigw-status success';
+                    status.innerHTML = '✅ ' + data.data;
+                } else {
+                    status.className = 'capigw-status error';
+                    status.innerHTML = '❌ ' + (data.data || 'Unknown error');
+                }
+                btn.disabled = false;
+                btn.textContent = 'Check Update Now';
+            })
+            .catch(function(err) {
+                status.style.display = 'block';
+                status.className = 'capigw-status error';
+                status.textContent = '❌ Network error: ' + err.message;
+                btn.disabled = false;
+                btn.textContent = 'Check Update Now';
             });
         } catch (e) {
             console.error(e);

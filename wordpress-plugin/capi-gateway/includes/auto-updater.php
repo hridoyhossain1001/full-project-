@@ -16,6 +16,18 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+function capigw_clear_update_cache() {
+    $settings = capigw_get_settings();
+    $cache_key = 'capigw_update_info_' . md5( $settings['api_key'] ?? '' );
+
+    delete_transient( $cache_key );
+    delete_site_transient( 'update_plugins' );
+
+    if ( function_exists( 'wp_clean_plugins_cache' ) ) {
+        wp_clean_plugins_cache( true );
+    }
+}
+
 class CAPIGW_Auto_Updater {
 
     private $plugin_slug;
