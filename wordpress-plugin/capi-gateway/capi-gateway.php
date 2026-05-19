@@ -1,13 +1,13 @@
 <?php
 /**
  * Plugin Name:       CAPI Gateway — Server-Side Tracking
- * Plugin URI:        https://still-stream-48626-bb0ac4cda957.herokuapp.com/
+ * Plugin URI:        https://buykori.me/
  * Description:       Server-Side Facebook CAPI, TikTok, and GA4 tracking for WooCommerce. Auto-tracks PageView, ViewContent, AddToCart, InitiateCheckout, and Purchase events with SHA-256 PII hashing and deferred purchase support.
  * Version:           1.1.6
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            CAPI Gateway
- * Author URI:        https://still-stream-48626-bb0ac4cda957.herokuapp.com/
+ * Author URI:        https://buykori.me/
  * License:           GPL v2 or later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       capi-gateway
@@ -27,7 +27,7 @@ define( 'CAPIGW_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'CAPIGW_OPTION_KEY', 'capigw_settings' );
 
 // Default Gateway URL (your Heroku server)
-define( 'CAPIGW_DEFAULT_GATEWAY_URL', 'https://still-stream-48626-bb0ac4cda957.herokuapp.com/api/v1' );
+define( 'CAPIGW_DEFAULT_GATEWAY_URL', 'https://buykori.me/api/v1' );
 
 // ─── Declare WooCommerce HPOS & Blocks Compatibility ──────────────────────────
 add_action( 'before_woocommerce_init', function() {

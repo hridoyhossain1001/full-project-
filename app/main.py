@@ -136,7 +136,8 @@ class HerokuRedirectMiddleware(BaseHTTPMiddleware):
         if host.endswith(".herokuapp.com"):
             target_domain = os.getenv("PRIMARY_DOMAIN", "www.buykori.me")
             url = request.url.replace(hostname=target_domain)
-            return RedirectResponse(url=str(url), status_code=301)
+            # Use 308 (Permanent Redirect) instead of 301 to preserve HTTP method (POST)
+            return RedirectResponse(url=str(url), status_code=308)
         return await call_next(request)
 
 app.add_middleware(HerokuRedirectMiddleware)

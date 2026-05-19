@@ -61,7 +61,7 @@ def _plugin_update_response(download_url: str, package_sha256: str, signature: s
         "download_url": download_url,
         "package_sha256": package_sha256,
         "signature": signature,
-        "homepage": "https://still-stream-48626-bb0ac4cda957.herokuapp.com/",
+        "homepage": "https://buykori.me/",
         "requires": "5.8",
         "tested": "6.7",
         "requires_php": "7.4",
