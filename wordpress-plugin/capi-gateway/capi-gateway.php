@@ -3,7 +3,7 @@
  * Plugin Name:       CAPI Gateway — Server-Side Tracking
  * Plugin URI:        https://buykori.me/
  * Description:       Server-Side Facebook CAPI, TikTok, and GA4 tracking for WooCommerce. Auto-tracks PageView, ViewContent, AddToCart, InitiateCheckout, and Purchase events with SHA-256 PII hashing and deferred purchase support.
- * Version:           1.1.6
+ * Version:           1.1.7
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            CAPI Gateway
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ─── Plugin Constants ──────────────────────────────────────────────────────────
-define( 'CAPIGW_VERSION', '1.1.6' );
+define( 'CAPIGW_VERSION', '1.1.7' );
 define( 'CAPIGW_PLUGIN_FILE', __FILE__ );
 define( 'CAPIGW_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'CAPIGW_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

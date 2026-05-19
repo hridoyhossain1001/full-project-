@@ -12,7 +12,7 @@ router = APIRouter(tags=["Plugin"])
 
 # Keep the update version tied to the packaged plugin. A stale Heroku
 # PLUGIN_VERSION config var can hide available updates from WordPress.
-PLUGIN_VERSION = "1.1.6"
+PLUGIN_VERSION = "1.1.7"
 PLUGIN_ZIP_PATH = Path(
     os.getenv(
         "PLUGIN_ZIP_PATH",
@@ -68,6 +68,10 @@ def _plugin_update_response(download_url: str, package_sha256: str, signature: s
         "last_updated": "2026-05-19",
         "description": "Server-Side Facebook CAPI, TikTok, and GA4 tracking for WooCommerce with deferred purchase support.",
         "changelog": (
+            "<h4>v1.1.7</h4><ul>"
+            "<li>Updated default Gateway URL to use the new custom domain</li>"
+            "<li>Improved compatibility with gateway redirects</li>"
+            "</ul>"
             "<h4>v1.1.6</h4><ul>"
             "<li>Added UTM campaign capture and persistence for attribution reporting</li>"
             "<li>Added campaign source detection for TikTok and Facebook click IDs</li>"
