@@ -3,7 +3,7 @@
  * Plugin Name:       CAPI Gateway — Server-Side Tracking
  * Plugin URI:        https://still-stream-48626-bb0ac4cda957.herokuapp.com/
  * Description:       Server-Side Facebook CAPI, TikTok, and GA4 tracking for WooCommerce. Auto-tracks PageView, ViewContent, AddToCart, InitiateCheckout, and Purchase events with SHA-256 PII hashing and deferred purchase support.
- * Version:           1.1.3
+ * Version:           1.1.4
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            CAPI Gateway
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ─── Plugin Constants ──────────────────────────────────────────────────────────
-define( 'CAPIGW_VERSION', '1.1.3' );
+define( 'CAPIGW_VERSION', '1.1.4' );
 define( 'CAPIGW_PLUGIN_FILE', __FILE__ );
 define( 'CAPIGW_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'CAPIGW_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

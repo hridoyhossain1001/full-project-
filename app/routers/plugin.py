@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 router = APIRouter(tags=["Plugin"])
 
-PLUGIN_VERSION = os.getenv("PLUGIN_VERSION", "1.1.3")
+PLUGIN_VERSION = os.getenv("PLUGIN_VERSION", "1.1.4")
 PLUGIN_ZIP_PATH = Path(
     os.getenv(
         "PLUGIN_ZIP_PATH",
@@ -66,6 +66,11 @@ def _plugin_update_response(download_url: str, package_sha256: str, signature: s
         "last_updated": "2026-05-19",
         "description": "Server-Side Facebook CAPI, TikTok, and GA4 tracking for WooCommerce with deferred purchase support.",
         "changelog": (
+            "<h4>v1.1.4</h4><ul>"
+            "<li>Improved TikTok event payloads with richer product contents, content IDs, and content type</li>"
+            "<li>Added checkout/customer field capture for better TikTok and Facebook event matching</li>"
+            "<li>Rebuilt plugin update package so WordPress can detect the latest update</li>"
+            "</ul>"
             "<h4>v1.1.3</h4><ul>"
             "<li>Added customer PII fields capture (email, phone, name, address, etc.) for AJAX tracking events</li>"
             "<li>Added nested contents array support to browser events (AddToCart, ViewContent, InitiateCheckout, etc.)</li>"
