@@ -10,7 +10,9 @@ from fastapi.responses import FileResponse, JSONResponse
 
 router = APIRouter(tags=["Plugin"])
 
-PLUGIN_VERSION = os.getenv("PLUGIN_VERSION", "1.1.4")
+# Keep the update version tied to the packaged plugin. A stale Heroku
+# PLUGIN_VERSION config var can hide available updates from WordPress.
+PLUGIN_VERSION = "1.1.4"
 PLUGIN_ZIP_PATH = Path(
     os.getenv(
         "PLUGIN_ZIP_PATH",
