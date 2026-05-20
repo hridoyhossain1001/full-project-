@@ -12,11 +12,11 @@ router = APIRouter(tags=["Plugin"])
 
 # Keep the update version tied to the packaged plugin. A stale Heroku
 # PLUGIN_VERSION config var can hide available updates from WordPress.
-PLUGIN_VERSION = "1.1.7"
+PLUGIN_VERSION = "1.1.8"
 PLUGIN_ZIP_PATH = Path(
     os.getenv(
         "PLUGIN_ZIP_PATH",
-        str(Path(__file__).resolve().parents[2] / "wordpress-plugin" / "capi-gateway.zip"),
+        str(Path(__file__).resolve().parents[2] / "wordpress-plugin" / "buykori-adsync.zip"),
     )
 )
 PLUGIN_DOWNLOAD_URL = os.getenv("PLUGIN_DOWNLOAD_URL", "")
@@ -61,15 +61,20 @@ def _plugin_update_response(download_url: str, package_sha256: str, signature: s
         "download_url": download_url,
         "package_sha256": package_sha256,
         "signature": signature,
-        "homepage": "https://buykori.me/",
+        "homepage": "https://buykori.app/",
         "requires": "5.8",
         "tested": "6.7",
         "requires_php": "7.4",
         "last_updated": "2026-05-19",
-        "description": "Server-Side Facebook CAPI, TikTok, and GA4 tracking for WooCommerce with deferred purchase support.",
+        "description": "Official Buykori AdSync WordPress plugin for server-side Facebook CAPI, TikTok, and GA4 tracking with one-page landing support and deferred purchase control.",
         "changelog": (
+            "<h4>v1.1.8</h4><ul>"
+            "<li>Added one-page landing tracking mode so InitiateCheckout waits for customer intent instead of page load</li>"
+            "<li>Added session duplicate guards for PageView, ViewContent, and InitiateCheckout browser events</li>"
+            "<li>Normalized campaign source and campaign names to keep UTM reports cleaner</li>"
+            "</ul>"
             "<h4>v1.1.7</h4><ul>"
-            "<li>Updated default Gateway URL to use the new custom domain</li>"
+            "<li>Updated default AdSync API URL to use the new custom domain</li>"
             "<li>Improved compatibility with gateway redirects</li>"
             "</ul>"
             "<h4>v1.1.6</h4><ul>"
@@ -126,5 +131,5 @@ async def plugin_download():
     return FileResponse(
         path=PLUGIN_ZIP_PATH,
         media_type="application/zip",
-        filename="capi-gateway.zip",
+        filename="buykori-adsync.zip",
     )

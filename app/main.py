@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import ORJSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, ORJSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -34,7 +34,7 @@ def _csv_env(name: str, default: str) -> list[str]:
 
 ALLOWED_HOSTS = _csv_env(
     "ALLOWED_HOSTS",
-    "localhost,127.0.0.1,testserver,*.herokuapp.com",
+    "localhost,127.0.0.1,testserver,*.herokuapp.com,buykori.app,www.buykori.app,client.buykori.app,admin.buykori.app,api.buykori.app,track.buykori.app",
 )
 
 # ─── Logging Setup ───────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 # ─── Lifespan: DB Table তৈরি হবে অ্যাপ স্টার্টে ─────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 CAPI Gateway স্টার্ট হচ্ছে...")
+    logger.info("🚀 Buykori AdSync স্টার্ট হচ্ছে...")
 
     # ─── Database Schema ──────────────────────────────────────────────────
     # Production-এ Alembic migration ব্যবহার করুন। create_all শুধু explicit
@@ -105,14 +105,14 @@ async def lifespan(app: FastAPI):
     await close_http_client()
     close_geoip_db()
 
-    logger.info("🛑 CAPI Gateway বন্ধ হচ্ছে...")
+    logger.info("🛑 Buykori AdSync বন্ধ হচ্ছে...")
     await engine.dispose()
 
 
 # ─── FastAPI App (ORJSONResponse = 2-3x faster JSON serialization) ────────
 app = FastAPI(
-    title="CAPI Gateway",
-    description="Multi-tenant Facebook Conversion API Gateway — Server-Side Tracking as a Service",
+    title="Buykori AdSync",
+    description="Multi-tenant ad tracking and conversion sync platform",
     version="1.1.0",
     lifespan=lifespan,
     docs_url="/docs" if ENABLE_DOCS else None,
@@ -134,7 +134,7 @@ class HerokuRedirectMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         host = request.url.hostname or ""
         if host.endswith(".herokuapp.com"):
-            target_domain = os.getenv("PRIMARY_DOMAIN", "www.buykori.me")
+            target_domain = os.getenv("PRIMARY_DOMAIN", "api.buykori.app")
             url = request.url.replace(hostname=target_domain)
             # Use 308 (Permanent Redirect) instead of 301 to preserve HTTP method (POST)
             return RedirectResponse(url=str(url), status_code=308)
@@ -182,11 +182,21 @@ app.include_router(client_health_router, prefix="/api/v1", tags=["Client Health"
 
 
 # ─── Health Check ─────────────────────────────────────────────────────────────
-@app.get("/", tags=["Health"])
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def marketing_home():
+    import os
+    site_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "site.html")
+    with open(site_path, "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+
+@app.get("/status", tags=["Health"])
 async def health_check():
     return {
         "status": "running",
-        "service": "CAPI Gateway",
+        "service": "Buykori AdSync",
         "version": "1.1.0",
-        "message": "🔥 Server-Side Tracking Gateway চলছে!",
+        "message": "🔥 Buykori AdSync চলছে!",
     }
