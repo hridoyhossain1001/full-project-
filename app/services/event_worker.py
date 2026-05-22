@@ -64,6 +64,7 @@ def _event_log_kwargs(client_id: int, event_data: dict, status: str, ip_address:
         "event_count": 1,
         "status": status,
         "ip_address": ip_address,
+        "emq_score": event_data.get("emq_score"),
         "value": value,
         "currency": custom_data.get("currency"),
         "campaign_source": campaign_source,
@@ -98,6 +99,32 @@ async def _log_secondary_failure(
             await db.commit()
     except Exception as log_error:
         logger.warning(f"Secondary failure logging failed: {log_error}")
+
+
+async def _log_secondary_success(
+    client_id: int,
+    channel: str,
+    event_names: str,
+    response_payload: object,
+    ip_address: str | None,
+) -> None:
+    """Record non-primary platform delivery without inflating analytics totals."""
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(EventLog(
+                client_id=client_id,
+                event_name=f"{channel}:{event_names}"[:255],
+                event_count=0,
+                status="success",
+                fb_response=json.dumps({
+                    "channel": channel,
+                    "response": response_payload,
+                }, default=str)[:5000],
+                ip_address=ip_address,
+            ))
+            await db.commit()
+    except Exception as log_error:
+        logger.warning(f"Secondary success logging failed: {log_error}")
 
 
 async def enqueue_events(
@@ -179,6 +206,15 @@ async def _send_tiktok_secondary(client, events: list[EventData], event_names: s
                 tiktok_result or "TikTok send failed",
                 ip_address,
             )
+            return
+
+        await _log_secondary_success(
+            client.id,
+            "TikTok",
+            event_names,
+            tiktok_result,
+            ip_address,
+        )
     except Exception as secondary_error:
         logger.warning(f"[{client.name}] TikTok secondary send failed: {secondary_error}")
         await _log_secondary_failure(

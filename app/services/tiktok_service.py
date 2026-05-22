@@ -17,6 +17,22 @@ logger = logging.getLogger(__name__)
 TIKTOK_API_URL = "https://business-api.tiktok.com/open_api/v1.3/event/track/"
 
 
+def _number(value):
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _quantity(value) -> int:
+    number = _number(value)
+    if number is None:
+        return 0
+    return max(0, int(number))
+
+
 def _map_event_name(fb_event_name: str) -> str:
     """Facebook event name কে TikTok-এর সমতুল্য ইভেন্টে কনভার্ট করে।"""
     mapping = {
@@ -58,12 +74,15 @@ def _normalize_tiktok_contents(cd) -> list[dict]:
             normalized_item["content_name"] = item.get("content_name")
         if item.get("content_category"):
             normalized_item["content_category"] = item.get("content_category")
-        if item.get("quantity") is not None:
-            normalized_item["quantity"] = item.get("quantity")
-        if item.get("price") is not None:
-            normalized_item["price"] = item.get("price")
-        elif item.get("item_price") is not None:
-            normalized_item["price"] = item.get("item_price")
+        quantity = _quantity(item.get("quantity"))
+        if quantity:
+            normalized_item["quantity"] = quantity
+
+        price = _number(item.get("price"))
+        if price is None:
+            price = _number(item.get("item_price"))
+        if price is not None:
+            normalized_item["price"] = price
 
         normalized.append(normalized_item)
 
@@ -134,10 +153,16 @@ def _build_tiktok_payload(client, events: List[EventData]) -> dict:
             contents = _normalize_tiktok_contents(cd)
             if contents:
                 properties["contents"] = contents
+                total_quantity = sum(_quantity(item.get("quantity")) for item in contents)
+                if total_quantity:
+                    properties["quantity"] = total_quantity
+                if contents[0].get("content_name"):
+                    properties["description"] = contents[0]["content_name"]
             if cd.order_id:
                 properties["order_id"] = cd.order_id
             if cd.num_items is not None:
                 properties["num_items"] = cd.num_items
+                properties.setdefault("quantity", cd.num_items)
             if properties:
                 tt_event["properties"] = properties
 
