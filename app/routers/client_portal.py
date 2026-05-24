@@ -17,6 +17,7 @@ from app.security import encrypt_token, decrypt_token
 from app.routers.client_auth import (
     _clean_domain,
     _clean_name,
+    _clear_session_cookie,
     _create_session,
     _validate_email,
     _validate_password,
@@ -200,7 +201,7 @@ async def client_logout():
     redirect = RedirectResponse(url="/client", status_code=303)
     redirect.delete_cookie("client_session")
     redirect.delete_cookie("buykori_client_session", path="/")
-    redirect.delete_cookie("buykori_client_session", domain=".buykori.app", path="/", secure=True, httponly=True, samesite="none")
+    _clear_session_cookie(redirect)
     return redirect
 
 
