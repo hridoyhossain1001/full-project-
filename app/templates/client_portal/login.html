@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,9 +15,77 @@
       overflow: auto;
       padding: 24px;
       color: #fff;
-      background:
-        linear-gradient(120deg, rgba(8, 13, 30, 0.1), rgba(8, 13, 30, 0.35)),
-        url("https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=2200&q=85") center/cover fixed;
+      background-color: #060b18;
+      position: relative;
+      z-index: 0;
+    }
+
+    /* Floating liquid glass background blobs */
+    body::before,
+    body::after {
+      content: "";
+      position: absolute;
+      width: 400px;
+      height: 400px;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: 0.25;
+      z-index: -1;
+      pointer-events: none;
+      animation: float-blob 25s infinite alternate ease-in-out;
+    }
+
+    body::before {
+      background: radial-gradient(circle, rgba(255, 139, 69, 0.8) 0%, transparent 70%);
+      top: 10%;
+      left: 10%;
+    }
+
+    body::after {
+      background: radial-gradient(circle, rgba(35, 191, 118, 0.8) 0%, transparent 70%);
+      bottom: 10%;
+      right: 10%;
+      animation-delay: -10s;
+      animation-duration: 30s;
+    }
+
+    /* Extra decorative liquid blob for depth */
+    .auth-bg-blob {
+      position: absolute;
+      width: 350px;
+      height: 350px;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.18;
+      z-index: -1;
+      pointer-events: none;
+      background: radial-gradient(circle, rgba(139, 92, 246, 0.8) 0%, transparent 70%);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      animation: float-blob-center 20s infinite alternate ease-in-out;
+      animation-delay: -5s;
+    }
+
+    @keyframes float-blob {
+      0% {
+        transform: translate(0, 0) scale(1);
+      }
+      50% {
+        transform: translate(120px, 80px) scale(1.15);
+      }
+      100% {
+        transform: translate(-50px, 150px) scale(0.9);
+      }
+    }
+
+    @keyframes float-blob-center {
+      0% {
+        transform: translate(-50%, -50%) translate(-80px, -60px) scale(0.9);
+      }
+      100% {
+        transform: translate(-50%, -50%) translate(80px, 60px) scale(1.1);
+      }
     }
 
     .auth-shell {
@@ -48,12 +117,16 @@
       position: absolute;
       inset: 0;
       background:
-        linear-gradient(120deg, rgba(255,255,255,0.24), transparent 32%),
-        radial-gradient(circle at 78% 12%, rgba(255,255,255,0.18), transparent 32%);
+        linear-gradient(120deg, rgba(255, 255, 255, 0.24), transparent 32%),
+        radial-gradient(circle at 78% 12%, rgba(255, 255, 255, 0.18), transparent 32%);
       pointer-events: none;
     }
 
-    .auth-content { position: relative; z-index: 1; }
+    .auth-content {
+      position: relative;
+      z-index: 1;
+    }
+
     .brand-mark {
       width: 58px;
       height: 58px;
@@ -61,8 +134,8 @@
       display: grid;
       place-items: center;
       margin-bottom: 22px;
-      background: linear-gradient(135deg, rgba(255,139,69,0.95), rgba(255,174,107,0.86));
-      box-shadow: 0 14px 42px rgba(255,139,69,0.32), inset 0 1px 0 rgba(255,255,255,0.38);
+      background: linear-gradient(135deg, rgba(255, 139, 69, 0.95), rgba(255, 174, 107, 0.86));
+      box-shadow: 0 14px 42px rgba(255, 139, 69, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.38);
       font: 900 28px/1 'Outfit', sans-serif;
       color: #fff;
     }
@@ -71,11 +144,11 @@
       font: 800 31px/1.05 'Outfit', sans-serif;
       letter-spacing: 0;
       margin: 0 0 8px;
-      text-shadow: 0 2px 24px rgba(0,0,0,0.2);
+      text-shadow: 0 2px 24px rgba(0, 0, 0, 0.2);
     }
 
     .auth-subtitle {
-      color: rgba(255,255,255,0.82);
+      color: rgba(255, 255, 255, 0.82);
       font-size: 14px;
       margin-bottom: 22px;
     }
@@ -85,9 +158,9 @@
       grid-template-columns: 1fr 1fr;
       gap: 8px;
       padding: 5px;
-      border: 1px solid rgba(255,255,255,0.28);
+      border: 1px solid rgba(255, 255, 255, 0.28);
       border-radius: 999px;
-      background: rgba(255,255,255,0.12);
+      background: rgba(255, 255, 255, 0.12);
       margin-bottom: 22px;
     }
 
@@ -96,41 +169,54 @@
       border-radius: 999px;
       padding: 10px 12px;
       background: transparent;
-      color: rgba(255,255,255,0.76);
+      color: rgba(255, 255, 255, 0.76);
       font-weight: 800;
       cursor: pointer;
       transition: 0.2s ease;
     }
 
     .auth-tab.active {
-      background: rgba(255,255,255,0.74);
+      background: rgba(255, 255, 255, 0.74);
       color: #15213b;
-      box-shadow: 0 8px 24px rgba(15,23,42,0.18), inset 0 1px 0 rgba(255,255,255,0.75);
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.75);
     }
 
-    .auth-panel { display: none; }
-    .auth-panel.active { display: block; }
+    .auth-panel {
+      display: none;
+    }
 
-    .field-group { display: grid; gap: 12px; margin-bottom: 14px; }
+    .auth-panel.active {
+      display: block;
+    }
+
+    .field-group {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
     .glass-input {
       width: 100%;
       min-height: 49px;
-      border: 1px solid rgba(255,255,255,0.36);
+      border: 1px solid rgba(255, 255, 255, 0.36);
       border-radius: 15px;
-      background: rgba(255,255,255,0.13);
+      background: rgba(255, 255, 255, 0.13);
       color: #fff;
       padding: 0 16px;
       outline: none;
       font-size: 14px;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
       transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
     }
 
-    .glass-input::placeholder { color: rgba(255,255,255,0.68); }
+    .glass-input::placeholder {
+      color: rgba(255, 255, 255, 0.68);
+    }
+
     .glass-input:focus {
-      border-color: rgba(255,255,255,0.72);
-      background: rgba(255,255,255,0.19);
-      box-shadow: 0 0 0 4px rgba(255,255,255,0.14), inset 0 1px 0 rgba(255,255,255,0.22);
+      border-color: rgba(255, 255, 255, 0.72);
+      background: rgba(255, 255, 255, 0.19);
+      box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.22);
     }
 
     .auth-row {
@@ -138,7 +224,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      color: rgba(255,255,255,0.8);
+      color: rgba(255, 255, 255, 0.8);
       font-size: 12px;
       margin: 4px 0 18px;
     }
@@ -151,7 +237,11 @@
       user-select: none;
     }
 
-    .check-label input { accent-color: #55c96f; width: 15px; height: 15px; }
+    .check-label input {
+      accent-color: #55c96f;
+      width: 15px;
+      height: 15px;
+    }
 
     .auth-submit {
       width: 100%;
@@ -162,19 +252,19 @@
       color: #fff;
       font: 800 16px/1 'Outfit', sans-serif;
       cursor: pointer;
-      box-shadow: 0 16px 35px rgba(35,191,118,0.28), inset 0 1px 0 rgba(255,255,255,0.28);
+      box-shadow: 0 16px 35px rgba(35, 191, 118, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.28);
       transition: transform 0.16s ease, box-shadow 0.16s ease;
     }
 
     .auth-submit:hover {
       transform: translateY(-1px);
-      box-shadow: 0 20px 42px rgba(35,191,118,0.34), inset 0 1px 0 rgba(255,255,255,0.32);
+      box-shadow: 0 20px 42px rgba(35, 191, 118, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.32);
     }
 
     .auth-switch {
       margin-top: 14px;
       text-align: center;
-      color: rgba(255,255,255,0.82);
+      color: rgba(255, 255, 255, 0.82);
       font-size: 12px;
     }
 
@@ -188,8 +278,8 @@
     }
 
     .auth-error {
-      border: 1px solid rgba(248,113,113,0.45);
-      background: rgba(127,29,29,0.28);
+      border: 1px solid rgba(248, 113, 113, 0.45);
+      background: rgba(127, 29, 29, 0.28);
       color: #fee2e2;
       border-radius: 14px;
       padding: 10px 12px;
@@ -200,20 +290,34 @@
     .auth-footer {
       margin-top: 28px;
       text-align: center;
-      color: rgba(255,255,255,0.75);
+      color: rgba(255, 255, 255, 0.75);
       font-size: 11px;
       font-weight: 700;
     }
 
     @media (max-width: 520px) {
-      body { padding: 14px; }
-      .auth-shell { min-height: calc(100vh - 28px); }
-      .auth-card { padding: 24px 20px 20px; border-radius: 24px; }
-      .auth-title { font-size: 28px; }
+      body {
+        padding: 14px;
+      }
+
+      .auth-shell {
+        min-height: calc(100vh - 28px);
+      }
+
+      .auth-card {
+        padding: 24px 20px 20px;
+        border-radius: 24px;
+      }
+
+      .auth-title {
+        font-size: 28px;
+      }
     }
   </style>
 </head>
+
 <body>
+  <div class="auth-bg-blob"></div>
   <main class="auth-shell">
     <section class="auth-card" aria-label="Buykori client authentication">
       <div class="auth-content">
@@ -222,37 +326,49 @@
         <p class="auth-subtitle">Login or create a client account to continue.</p>
 
         <div class="auth-tabs" role="tablist" aria-label="Authentication options">
-          <button class="auth-tab {% if active_tab != 'signup' %}active{% endif %}" type="button" data-tab="login">Login</button>
-          <button class="auth-tab {% if active_tab == 'signup' %}active{% endif %}" type="button" data-tab="signup">Signup</button>
+          <button class="auth-tab {% if active_tab != 'signup' %}active{% endif %}" type="button"
+            data-tab="login">Login</button>
+          <button class="auth-tab {% if active_tab == 'signup' %}active{% endif %}" type="button"
+            data-tab="signup">Signup</button>
         </div>
 
         {% if error %}
         <div class="auth-error">{{ error }}</div>
         {% endif %}
 
-        <form class="auth-panel {% if active_tab != 'signup' %}active{% endif %}" id="login-panel" action="/client/login" method="post" autocomplete="on">
+        <form class="auth-panel {% if active_tab != 'signup' %}active{% endif %}" id="login-panel"
+          action="/client/login" method="post" autocomplete="on">
           <div class="field-group">
-            <input class="glass-input" type="email" name="email" placeholder="Email address" autocomplete="email" required>
-            <input class="glass-input" type="password" name="password" placeholder="Password" autocomplete="current-password" required>
+            <input class="glass-input" type="email" name="email" placeholder="Email address" autocomplete="email"
+              required>
+            <input class="glass-input" type="password" name="password" placeholder="Password"
+              autocomplete="current-password" required>
           </div>
           <div class="auth-row">
             <label class="check-label"><input type="checkbox" checked> Remember me</label>
             <span>Secure portal</span>
           </div>
           <button class="auth-submit" type="submit">Login</button>
-          <p class="auth-switch">Don't have an account? <button class="auth-link" type="button" data-switch="signup">Signup</button></p>
+          <p class="auth-switch">Don't have an account? <button class="auth-link" type="button"
+              data-switch="signup">Signup</button></p>
         </form>
 
-        <form class="auth-panel {% if active_tab == 'signup' %}active{% endif %}" id="signup-panel" action="/client/signup" method="post" autocomplete="on">
+        <form class="auth-panel {% if active_tab == 'signup' %}active{% endif %}" id="signup-panel"
+          action="/client/signup" method="post" autocomplete="on">
           <div class="field-group">
-            <input class="glass-input" type="text" name="full_name" placeholder="Full name" autocomplete="name" required>
-            <input class="glass-input" type="text" name="business_name" placeholder="Business name" autocomplete="organization" required>
-            <input class="glass-input" type="email" name="email" placeholder="Email address" autocomplete="email" required>
-            <input class="glass-input" type="password" name="password" placeholder="Create password" autocomplete="new-password" minlength="8" required>
+            <input class="glass-input" type="text" name="full_name" placeholder="Full name" autocomplete="name"
+              required>
+            <input class="glass-input" type="text" name="business_name" placeholder="Business name"
+              autocomplete="organization" required>
+            <input class="glass-input" type="email" name="email" placeholder="Email address" autocomplete="email"
+              required>
+            <input class="glass-input" type="password" name="password" placeholder="Create password"
+              autocomplete="new-password" minlength="8" required>
             <input class="glass-input" type="text" name="domain" placeholder="Website domain optional">
           </div>
           <button class="auth-submit" type="submit">Create Account</button>
-          <p class="auth-switch">Already have an account? <button class="auth-link" type="button" data-switch="login">Login</button></p>
+          <p class="auth-switch">Already have an account? <button class="auth-link" type="button"
+              data-switch="login">Login</button></p>
         </form>
 
         <div class="auth-footer">Created by Buykori AdSync</div>
@@ -276,4 +392,5 @@
     switches.forEach((button) => button.addEventListener('click', () => activateAuthTab(button.dataset.switch)));
   </script>
 </body>
+
 </html>
