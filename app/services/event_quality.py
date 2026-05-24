@@ -93,7 +93,7 @@ def _stable_event_suffix(event: EventData) -> str:
 def calculate_emq_score(event: EventData) -> float:
     """
     Calculate a realistic Event Match Quality (EMQ) score from 0.0 to 10.0
-    based on standard Facebook and TikTok guidelines.
+    based on official Meta (Facebook) CAPI and TikTok Events API guidelines.
     """
     if not event.user_data:
         return 0.0
@@ -101,34 +101,51 @@ def calculate_emq_score(event: EventData) -> float:
     ud = event.user_data
     score = 0.0
 
-    # 1. Email (em) - High value (up to 3.0 pts)
+    # Meta CAPI/TikTok high-value user identifiers
+    # 1. Email (em) - 2.5 points
     if ud.em:
-        score += 3.0
+        score += 2.5
 
-    # 2. Phone (ph) - High value (up to 3.0 pts)
+    # 2. Phone (ph) - 2.5 points
     if ud.ph:
-        score += 3.0
+        score += 2.5
 
-    # 3. First Party Cookies (fbp, ttp) - Medium-High value (up to 1.0 pts)
+    # 3. Browser ID / First-party Cookie (fbp / ttp) - 1.0 point
     if ud.fbp or ud.ttp:
         score += 1.0
 
-    # 4. Click IDs (fbc, ttclid) - High value for attribution (up to 1.0 pts)
+    # 4. Click ID (fbc / ttclid) - 1.0 point
     if ud.fbc or ud.ttclid:
         score += 1.0
 
-    # 5. IP Address & User Agent - Basic matching (up to 1.0 pts)
-    if ud.client_ip_address and ud.client_user_agent:
+    # 5. External ID - 1.0 point (Crucial matching parameter)
+    if ud.external_id:
         score += 1.0
 
-    # 6. Other PII (fn, ln, ct, st, zp, country) - Small boosts (up to 1.0 pts)
-    other_pii = sum(1 for k in ["fn", "ln", "ct", "st", "zp", "country"] if getattr(ud, k, None))
-    if other_pii >= 2:
-        score += 1.0
-    elif other_pii == 1:
+    # 6. IP Address - 0.5 point
+    if ud.client_ip_address:
         score += 0.5
 
-    return min(10.0, score)
+    # 7. User Agent - 0.5 point
+    if ud.client_user_agent:
+        score += 0.5
+
+    # 8. Individual PII parameters - 0.3 to 0.4 points each
+    if ud.fn:
+        score += 0.4
+    if ud.ln:
+        score += 0.4
+    if ud.ct:
+        score += 0.3
+    if ud.st:
+        score += 0.3
+    if ud.zp:
+        score += 0.3
+    if ud.country:
+        score += 0.3
+
+    return min(10.0, round(score, 1))
+
 
 
 def boost_event_quality(
@@ -210,6 +227,7 @@ def boost_event_quality(
         def set_extra(model, key, val):
             try:
                 setattr(model, key, val)
+                return
             except Exception:
                 pass
             if hasattr(model, "model_extra") and isinstance(model.model_extra, dict):
@@ -231,17 +249,10 @@ def boost_event_quality(
                     set_extra(cd, "utm_medium", "paid_social")
 
         # 2. Campaign parameter normalizations
-        utm_src = get_extra(cd, "utm_source")
-        if utm_src:
-            set_extra(cd, "utm_source", str(utm_src).strip().lower())
-
-        camp_src = get_extra(cd, "campaign_source")
-        if camp_src:
-            set_extra(cd, "campaign_source", str(camp_src).strip().lower())
-
-        utm_med = get_extra(cd, "utm_medium")
-        if utm_med:
-            set_extra(cd, "utm_medium", str(utm_med).strip().lower())
+        for field in ("utm_source", "campaign_source", "utm_medium"):
+            val = get_extra(cd, field)
+            if val:
+                set_extra(cd, field, str(val).strip().lower())
 
         utm_camp = get_extra(cd, "utm_campaign")
         if utm_camp:

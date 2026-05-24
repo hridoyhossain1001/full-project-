@@ -62,7 +62,9 @@ class UserData(BaseModel):
         if not isinstance(data, dict):
             return data
 
-        hashable_fields = ['em', 'ph', 'fn', 'ln', 'ct', 'st', 'zp', 'country', 'external_id']
+        hashable_fields = ['em', 'ph', 'fn', 'ln', 'ct', 'st', 'zp', 'country']
+        # Note: external_id is NOT hashed — Meta recommends hashing only if it contains PII.
+        # Buykori uses auto-generated visitor IDs, not PII, so hashing reduces match quality.
 
         for field in hashable_fields:
             if field in data and data[field] is not None:

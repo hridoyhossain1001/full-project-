@@ -16,6 +16,8 @@ class PendingEvent(Base):
     order_id = Column(String, nullable=False, index=True)           # "order-12345"
     event_data = Column(JSON, nullable=False)                        # সম্পূর্ণ event payload (user_data সহ)
     status = Column(String, default="pending", index=True)           # pending / confirmed / cancelled / expired
+    fraud_score = Column(Integer, nullable=True)                     # Fraud Risk Score (0-100)
+    fraud_details = Column(JSON, nullable=True)                      # Heuristics evaluation details JSON
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
 

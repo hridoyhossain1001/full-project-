@@ -65,7 +65,7 @@
           <td><span style="color:#818cf8">{{ log.action or '—' }}</span></td>
           <td class="code-text">{{ log.client_id or '—' }}</td>
           <td class="code-text">{{ log.ip_address or '—' }}</td>
-          <td style="color:var(--text-muted);font-size:12px">{{ log.details[:60] }}</td>
+          <td style="color:var(--text-muted);font-size:12px">{{ (log.details or '—')[:60] }}</td>
         </tr>
         {% endfor %}
       </tbody>

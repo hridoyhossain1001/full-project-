@@ -79,11 +79,15 @@ def set_in_client_cache(cache_key: str, cached_client: CachedClient):
     """ক্যাশে নতুন ক্লায়েন্ট অ্যাড করার সময় ক্যাশের সাইজ ১০০০-এর নিচে রাখে যাতে মেমোরি লিক না হয়"""
     now = time.time()
     if len(_client_cache) >= 1000:
+        # First pass: evict expired entries
         expired_keys = [k for k, (_, ts) in list(_client_cache.items()) if now - ts >= CACHE_TTL]
         for k in expired_keys:
             _client_cache.pop(k, None)
+        # Still full? Evict oldest 200 entries (LRU-style) instead of clearing all
         if len(_client_cache) >= 1000:
-            _client_cache.clear()
+            sorted_keys = sorted(_client_cache.keys(), key=lambda k: _client_cache[k][1])
+            for k in sorted_keys[:200]:
+                _client_cache.pop(k, None)
     _client_cache[cache_key] = (cached_client, now)
 
 def _snapshot(client: Client) -> CachedClient:

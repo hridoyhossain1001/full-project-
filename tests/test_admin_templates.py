@@ -203,10 +203,8 @@ async def test_client_dashboard_render():
 
     response = client.get("/client/dashboard")
     assert response.status_code == 200
-    assert "Test Store" in response.text
-    assert "Delivery Success Rate" in response.text
-    assert "Verified Purchase Tracking" in response.text
-    assert "Campaign URL Builder" in response.text
+    assert '<div id="root"></div>' in response.text
+    assert '/static/client-portal/assets/' in response.text
 
 
 @pytest.mark.anyio

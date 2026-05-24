@@ -40,3 +40,4 @@ class Client(Base):
     # ─── Monthly Usage Limit (Rate Limiting Per-Client) ───────────────
     monthly_limit = Column(Integer, default=50000)                  # মাসিক সর্বোচ্চ ইভেন্ট (0 = unlimited)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

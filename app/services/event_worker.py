@@ -19,11 +19,8 @@ from app.models.client import Client
 from app.models.event_log import EventLog
 from app.models.event_outbox import EventOutbox
 from app.schemas.event import EventData
-from app.services.capi_service import send_to_facebook
-from app.services.ga4_service import send_to_ga4
-from app.services.tiktok_service import send_to_tiktok
+from app.services.delivery_service import deliver_events_to_platforms
 from app.services.usage_service import rollback_usage_reservation
-from app.services.webhook_service import send_webhook
 from app.utils.event_log_helpers import build_event_log_kwargs as _event_log_kwargs
 
 logger = logging.getLogger(__name__)
@@ -51,53 +48,7 @@ def _event_names(events: list[EventData]) -> str:
 
 
 
-async def _log_secondary_failure(
-    client_id: int,
-    channel: str,
-    event_names: str,
-    event_count: int,
-    error_message: str,
-    ip_address: str | None,
-) -> None:
-    try:
-        async with AsyncSessionLocal() as db:
-            db.add(EventLog(
-                client_id=client_id,
-                event_name=f"{channel}:{event_names}"[:255],
-                event_count=event_count,
-                status="failed",
-                error_message=str(error_message)[:500],
-                ip_address=ip_address,
-            ))
-            await db.commit()
-    except Exception as log_error:
-        logger.warning(f"Secondary failure logging failed: {log_error}")
-
-
-async def _log_secondary_success(
-    client_id: int,
-    channel: str,
-    event_names: str,
-    response_payload: object,
-    ip_address: str | None,
-) -> None:
-    """Record non-primary platform delivery without inflating analytics totals."""
-    try:
-        async with AsyncSessionLocal() as db:
-            db.add(EventLog(
-                client_id=client_id,
-                event_name=f"{channel}:{event_names}"[:255],
-                event_count=0,
-                status="success",
-                fb_response=json.dumps({
-                    "channel": channel,
-                    "response": response_payload,
-                }, default=str)[:5000],
-                ip_address=ip_address,
-            ))
-            await db.commit()
-    except Exception as log_error:
-        logger.warning(f"Secondary success logging failed: {log_error}")
+# Secondary logging and delivery methods relocated to delivery_service.py
 
 
 async def enqueue_events(
@@ -168,115 +119,6 @@ async def _mark_dead(db, row: EventOutbox, client, error_message: str) -> None:
             logger.warning(f"[{client.name}] Outbox usage rollback failed: {usage_error}")
 
 
-async def _send_tiktok_secondary(client, events: list[EventData], event_names: str, ip_address: str | None) -> None:
-    try:
-        tiktok_result = await send_to_tiktok(client, events)
-        if not tiktok_result or tiktok_result.get("code") not in (0, None):
-            await _log_secondary_failure(
-                client.id,
-                "TikTok",
-                event_names,
-                len(events),
-                tiktok_result or "TikTok send failed",
-                ip_address,
-            )
-            return
-
-        if tiktok_result.get("sent_count") == 0:
-            logger.info(
-                f"[{client.name}] TikTok secondary skipped unsupported event(s): {event_names}"
-            )
-            return
-
-        await _log_secondary_success(
-            client.id,
-            "TikTok",
-            event_names,
-            tiktok_result,
-            ip_address,
-        )
-    except Exception as secondary_error:
-        logger.warning(f"[{client.name}] TikTok secondary send failed: {secondary_error}")
-        await _log_secondary_failure(
-            client.id,
-            "TikTok",
-            event_names,
-            len(events),
-            str(secondary_error),
-            ip_address,
-        )
-
-
-async def _send_ga4_secondary(
-    client,
-    events_data: list[dict],
-    event_names: str,
-    context: dict,
-) -> None:
-    try:
-        ga4_result = await send_to_ga4(
-            events=events_data,
-            measurement_id=client.ga4_measurement_id,
-            api_secret=client.ga4_api_secret,
-            cookies=context.get("cookies") or {},
-            ip_address=context.get("ip_address"),
-            user_agent=context.get("user_agent") or "",
-        )
-        if ga4_result and not ga4_result.get("ok", True):
-            await _log_secondary_failure(
-                client.id,
-                "GA4",
-                event_names,
-                len(events_data),
-                ga4_result.get("error") or ga4_result,
-                context.get("ip_address"),
-            )
-    except Exception as secondary_error:
-        logger.warning(f"[{client.name}] GA4 secondary send failed: {secondary_error}")
-        await _log_secondary_failure(
-            client.id,
-            "GA4",
-            event_names,
-            len(events_data),
-            str(secondary_error),
-            context.get("ip_address"),
-        )
-
-
-async def _send_webhook_secondary(client, events_data: list[dict], context: dict) -> None:
-    for event_data in events_data:
-        try:
-            sent = await send_webhook(
-                client.webhook_url,
-                "event.sent",
-                {
-                    "client_name": client.name,
-                    "event_name": event_data.get("event_name"),
-                    "event_id": event_data.get("event_id"),
-                    "custom_data": event_data.get("custom_data", {}),
-                },
-            )
-            if not sent:
-                await _log_secondary_failure(
-                    client.id,
-                    "Webhook",
-                    event_data.get("event_name") or "unknown",
-                    1,
-                    "Webhook send failed",
-                    context.get("ip_address"),
-                )
-        except Exception as secondary_error:
-            logger.warning(f"[{client.name}] Outbound webhook failed: {secondary_error}")
-            await _log_secondary_failure(
-                client.id,
-                "Webhook",
-                event_data.get("event_name") or "unknown",
-                1,
-                str(secondary_error),
-                context.get("ip_address"),
-            )
-
-
 async def process_outbox_row(row_id: int) -> None:
     async with AsyncSessionLocal() as db:
         row = await db.get(EventOutbox, row_id)
@@ -286,9 +128,13 @@ async def process_outbox_row(row_id: int) -> None:
         client_result = await db.execute(select(Client).where(Client.id == row.client_id))
         client_row = client_result.scalar_one_or_none()
         if not client_row or not client_row.is_active:
-            fallback_client = client_row or type("InactiveClient", (), {"id": row.client_id, "name": f"Client {row.client_id}"})()
-            await _mark_dead(db, row, fallback_client, "Client inactive or missing")
+            # Client inactive or missing — mark dead without usage rollback
+            row.status = "dead"
+            row.last_error = "Client inactive or missing"
+            row.locked_at = None
+            row.locked_by = None
             await db.commit()
+            logger.warning(f"Outbox row {row.id} marked dead: client {row.client_id} inactive/missing")
             return
 
         client = _snapshot(client_row)
@@ -297,39 +143,9 @@ async def process_outbox_row(row_id: int) -> None:
         event_names = _event_names(events)
 
         try:
-            facebook_enabled = bool(getattr(client, "enable_facebook", True) and client.pixel_id and client.access_token)
-            tiktok_enabled = bool(getattr(client, "enable_tiktok", True) and client.tiktok_pixel_id and client.tiktok_access_token)
-            ga4_enabled = bool(getattr(client, "enable_ga4", True) and client.ga4_measurement_id and client.ga4_api_secret)
-            webhook_enabled = bool(client.webhook_url)
-
-            if not any([facebook_enabled, tiktok_enabled, ga4_enabled, webhook_enabled]):
-                raise RuntimeError("No delivery platform enabled for this client")
-
-            result = None
-            if facebook_enabled:
-                result = await send_to_facebook(client, events)
-
-            events_data = [event.model_dump(exclude_none=True) for event in events]
-            primary_tiktok_sent = False
-            primary_ga4_sent = False
-            if not facebook_enabled and tiktok_enabled:
-                tiktok_result = await send_to_tiktok(client, events)
-                if not tiktok_result or tiktok_result.get("code") not in (0, None):
-                    raise RuntimeError(f"TikTok send failed: {tiktok_result}")
-                primary_tiktok_sent = True
-
-            if not facebook_enabled and not tiktok_enabled and ga4_enabled:
-                ga4_result = await send_to_ga4(
-                    events=events_data,
-                    measurement_id=client.ga4_measurement_id,
-                    api_secret=client.ga4_api_secret,
-                    cookies=context.get("cookies") or {},
-                    ip_address=context.get("ip_address"),
-                    user_agent=context.get("user_agent") or "",
-                )
-                if ga4_result and not ga4_result.get("ok", True):
-                    raise RuntimeError(f"GA4 send failed: {ga4_result.get('error') or ga4_result}")
-                primary_ga4_sent = True
+            delivery_res = await deliver_events_to_platforms(client, events, context)
+            primary_platform = delivery_res["primary_platform"]
+            result = delivery_res["result"]
 
             row.status = "sent"
             row.sent_at = _now()
@@ -337,6 +153,7 @@ async def process_outbox_row(row_id: int) -> None:
             row.locked_by = None
             row.last_error = None
 
+            events_data = [event.model_dump(exclude_none=True) for event in events]
             for event_data in events_data:
                 db.add(EventLog(**_event_log_kwargs(
                     client.id,
@@ -347,24 +164,7 @@ async def process_outbox_row(row_id: int) -> None:
                 )))
             await db.commit()
 
-            secondary_tasks = []
-            if tiktok_enabled and not primary_tiktok_sent:
-                secondary_tasks.append(
-                    _send_tiktok_secondary(client, events, event_names, context.get("ip_address"))
-                )
-
-            if ga4_enabled and not primary_ga4_sent:
-                secondary_tasks.append(
-                    _send_ga4_secondary(client, events_data, event_names, context)
-                )
-
-            if webhook_enabled:
-                secondary_tasks.append(_send_webhook_secondary(client, events_data, context))
-
-            if secondary_tasks:
-                await asyncio.gather(*secondary_tasks)
-
-            logger.info(f"[{client.name}] Outbox row {row.id} sent ({len(events)} events).")
+            logger.info(f"[{client.name}] Outbox row {row.id} sent ({len(events)} events) via {primary_platform}.")
 
         except Exception as exc:
             attempts = row.attempts + 1
@@ -403,7 +203,10 @@ async def process_event_outbox_forever() -> None:
             async with AsyncSessionLocal() as db:
                 rows = await claim_due_events(db)
             if rows:
-                await asyncio.gather(*(process_outbox_row(row.id) for row in rows))
+                await asyncio.gather(
+                    *(process_outbox_row(row.id) for row in rows),
+                    return_exceptions=True,
+                )
             else:
                 await asyncio.sleep(WORKER_POLL_SECONDS)
         except Exception as exc:

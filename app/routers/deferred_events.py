@@ -86,6 +86,8 @@ class PendingEventResponse(BaseModel):
     created_at: str
     age_hours: float
     customer: Optional[str] = None
+    fraud_score: Optional[int] = None
+    fraud_details: Optional[dict] = None
 
 
 class ConfirmResponse(BaseModel):
@@ -550,6 +552,8 @@ async def list_pending_events(
             created_at=e.created_at.isoformat() if e.created_at else "",
             age_hours=age_hours,
             customer=cust_val,
+            fraud_score=e.fraud_score,
+            fraud_details=e.fraud_details,
         ))
 
     return PendingListResponse(

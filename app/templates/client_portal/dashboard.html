@@ -265,6 +265,7 @@
               <th>Order ID</th>
               <th>Amount</th>
               <th>Customer</th>
+              <th>Risk Score</th>
               <th>Time</th>
               <th>Actions</th>
             </tr>
@@ -294,6 +295,27 @@
                   —
                 {% endif %}
               </td>
+              <td>
+                {% if pe.fraud_score is not none %}
+                  {% set active_checks = [] %}
+                  {% if pe.fraud_details %}
+                    {% if pe.fraud_details.ip_mismatch %}{% set _ = active_checks.append('IP Mismatch') %}{% endif %}
+                    {% if pe.fraud_details.disposable_email %}{% set _ = active_checks.append('Disposable Email') %}{% endif %}
+                    {% if pe.fraud_details.velocity_limit %}{% set _ = active_checks.append('Velocity Triggered') %}{% endif %}
+                    {% if pe.fraud_details.gibberish_name %}{% set _ = active_checks.append('Gibberish Name') %}{% endif %}
+                  {% endif %}
+                  {% set tooltip = active_checks|join(', ') if active_checks else 'Passed all heuristics' %}
+                  {% if pe.fraud_score >= 75 %}
+                    <span class="badge" style="background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.3);padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;cursor:help;" title="High Risk ({{ tooltip }})">🔴 {{ pe.fraud_score }}/100</span>
+                  {% elif pe.fraud_score >= 35 %}
+                    <span class="badge" style="background:rgba(245,158,11,0.12);color:#fbbf24;border:1px solid rgba(245,158,11,0.3);padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;cursor:help;" title="Medium Risk ({{ tooltip }})">🟡 {{ pe.fraud_score }}/100</span>
+                  {% else %}
+                    <span class="badge" style="background:rgba(16,185,129,0.12);color:#34d399;border:1px solid rgba(16,185,129,0.3);padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;cursor:help;" title="Low Risk ({{ tooltip }})">🟢 {{ pe.fraud_score }}/100</span>
+                  {% endif %}
+                {% else %}
+                  <span style="color:var(--text-dim);font-size:12px">—</span>
+                {% endif %}
+              </td>
               <td style="color:var(--text-muted);font-size:12px">
                 {% if pe.created_at %}
                   {{ pe.created_at.strftime('%Y-%m-%d') }}
@@ -307,7 +329,7 @@
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="6" style="text-align:center;color:#555;padding:30px">কোনো pending অর্ডার নেই 🎉</td></tr>
+            <tr><td colspan="7" style="text-align:center;color:#555;padding:30px">কোনো pending অর্ডার নেই 🎉</td></tr>
             {% endfor %}
           </tbody>
         </table>

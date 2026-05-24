@@ -16,16 +16,15 @@ from app.models.client import Client
 from app.models.event_log import EventLog
 from app.models.failed_event import FailedEvent
 from app.schemas.event import EventData
-from app.services.capi_service import send_to_facebook
-from app.services.ga4_service import send_to_ga4
-from app.services.tiktok_service import send_to_tiktok
-from app.services.webhook_service import send_webhook
+from app.services.delivery_service import deliver_events_to_platforms
 from app.services.usage_service import increment_usage_counters_db
 
 logger = logging.getLogger(__name__)
 
 # Retry intervals (seconds): 30s, 2min, 10min, 30min, 1hr
 RETRY_DELAYS = [30, 120, 600, 1800, 3600]
+# If a row stays in "retrying" for longer than this, reclaim it (crash recovery)
+STALE_RETRYING_SECONDS = 600  # 10 minutes
 
 
 async def save_failed_event(
@@ -70,22 +69,39 @@ async def claim_due_failed_events(db: AsyncSession, limit: int = 20) -> list[Fai
     Retry করার আগে row lock করে claim করা হয়।
     একাধিক worker থাকলেও একই failed event একসাথে পাঠানো হবে না।
     SQL-এ due-time ফিল্টার করা হয় যেন LIMIT শুধু due ইভেন্টে প্রযোজ্য হয়।
+    Stale "retrying" rows (crash recovery) also get reclaimed after STALE_RETRYING_SECONDS.
     """
     from sqlalchemy import or_
 
     now = datetime.now(timezone.utc)
+    stale_before = now - timedelta(seconds=STALE_RETRYING_SECONDS)
     # SQL-level: শুধুমাত্র due হতে পারে এমন row fetch করো
     # (last_retry_at NULL = pending, অথবা minimum 30s পার হয়ে গেছে)
+    # Stale "retrying" rows older than STALE_RETRYING_SECONDS are also reclaimed
     min_delay = RETRY_DELAYS[0]  # 30 seconds
     result = await db.execute(
         select(FailedEvent)
         .where(
             and_(
-                FailedEvent.status.in_(["pending", "retrying"]),
                 FailedEvent.retry_count < FailedEvent.max_retries,
                 or_(
-                    FailedEvent.last_retry_at.is_(None),
-                    FailedEvent.last_retry_at <= now - timedelta(seconds=min_delay),
+                    # Pending rows that are due for retry
+                    and_(
+                        FailedEvent.status == "pending",
+                        or_(
+                            FailedEvent.last_retry_at.is_(None),
+                            FailedEvent.last_retry_at <= now - timedelta(seconds=min_delay),
+                        ),
+                    ),
+                    # Retryable rows that are due by backoff, plus stale claimed rows
+                    # that may have crashed before the retry completed.
+                    and_(
+                        FailedEvent.status == "retrying",
+                        or_(
+                            FailedEvent.last_retry_at <= now - timedelta(seconds=min_delay),
+                            FailedEvent.last_retry_at <= stale_before,
+                        ),
+                    ),
                 ),
             )
         )
@@ -98,7 +114,12 @@ async def claim_due_failed_events(db: AsyncSession, limit: int = 20) -> list[Fai
     # Python-level: exact RETRY_DELAYS দিয়ে precise check
     due_events: list[FailedEvent] = []
     for failed in failed_events:
-        if not _retry_is_due(failed, now):
+        is_stale_retrying = (
+            failed.status == "retrying"
+            and failed.last_retry_at is not None
+            and _as_utc(failed.last_retry_at) <= stale_before
+        )
+        if not is_stale_retrying and not _retry_is_due(failed, now):
             continue
         failed.status = "retrying"
         failed.last_retry_at = now
@@ -142,122 +163,22 @@ async def retry_failed_events():
                         # ইভেন্ট ডাটা থেকে EventData অবজেক্ট তৈরি করো
                         events = [EventData(**e) for e in failed.event_payload]
 
-                        # Check enabled platforms
-                        facebook_enabled = bool(getattr(client, "enable_facebook", True) and client.pixel_id and client.access_token)
-                        tiktok_enabled = bool(getattr(client, "enable_tiktok", True) and client.tiktok_pixel_id and client.tiktok_access_token)
-                        ga4_enabled = bool(getattr(client, "enable_ga4", True) and client.ga4_measurement_id and client.ga4_api_secret)
-                        webhook_enabled = bool(client.webhook_url)
+                        # Prepare request context from the first event's user data since retry rows don't have it saved
+                        first_user_data = events[0].user_data if (events and events[0].user_data) else None
+                        cookies = {}
+                        if first_user_data:
+                            if first_user_data.fbp: cookies["_fbp"] = first_user_data.fbp
+                            if first_user_data.fbc: cookies["_fbc"] = first_user_data.fbc
+                            if first_user_data.ttp: cookies["_ttp"] = first_user_data.ttp
+                        context = {
+                            "cookies": cookies,
+                            "ip_address": first_user_data.client_ip_address if first_user_data else None,
+                            "user_agent": first_user_data.client_user_agent if first_user_data else "",
+                        }
 
-                        if not any([facebook_enabled, tiktok_enabled, ga4_enabled, webhook_enabled]):
-                            raise RuntimeError("No delivery platform enabled for this client")
-
-                        result = None
-                        primary_sent = False
-
-                        # Try Facebook first if enabled
-                        if facebook_enabled:
-                            result = await send_to_facebook(client, events)
-                            primary_sent = True
-
-                        # If Facebook not enabled but TikTok is, TikTok is primary
-                        primary_tiktok_sent = False
-                        if not primary_sent and tiktok_enabled:
-                            tiktok_result = await send_to_tiktok(client, events)
-                            if not tiktok_result or tiktok_result.get("code") not in (0, None):
-                                raise RuntimeError(f"TikTok primary send failed: {tiktok_result}")
-                            primary_sent = True
-                            primary_tiktok_sent = True
-
-                        # If neither is enabled, try GA4 as primary
-                        primary_ga4_sent = False
-                        events_data = [event.model_dump(exclude_none=True) for event in events]
-                        if not primary_sent and ga4_enabled:
-                            first_user_data = events[0].user_data if (events and events[0].user_data) else None
-                            cookies = {}
-                            if first_user_data:
-                                if first_user_data.fbp: cookies["_fbp"] = first_user_data.fbp
-                                if first_user_data.fbc: cookies["_fbc"] = first_user_data.fbc
-                                if first_user_data.ttp: cookies["_ttp"] = first_user_data.ttp
-                            ga4_result = await send_to_ga4(
-                                events=events_data,
-                                measurement_id=client.ga4_measurement_id,
-                                api_secret=client.ga4_api_secret,
-                                cookies=cookies,
-                                ip_address=first_user_data.client_ip_address if first_user_data else None,
-                                user_agent=first_user_data.client_user_agent if first_user_data else "",
-                            )
-                            if ga4_result and not ga4_result.get("ok", True):
-                                raise RuntimeError(f"GA4 primary send failed: {ga4_result.get('error') or ga4_result}")
-                            primary_sent = True
-                            primary_ga4_sent = True
-
-                        # If primary succeeded, do secondary sends in parallel
-                        if primary_sent:
-                            secondary_tasks = []
-                            first_user_data = events[0].user_data if (events and events[0].user_data) else None
-                            ip_address = first_user_data.client_ip_address if first_user_data else None
-                            user_agent = first_user_data.client_user_agent if first_user_data else ""
-                            event_names = ", ".join(sorted({event.event_name for event in events}))
-
-                            if tiktok_enabled and not primary_tiktok_sent:
-                                async def _tiktok_sec(client=client, events=events):
-                                    try:
-                                        await send_to_tiktok(client, events)
-                                    except Exception as se:
-                                        logger.warning(f"Secondary TikTok retry failed: {se}")
-                                secondary_tasks.append(_tiktok_sec())
-
-                            if ga4_enabled and not primary_ga4_sent:
-                                cookies = {}
-                                if first_user_data:
-                                    if first_user_data.fbp: cookies["_fbp"] = first_user_data.fbp
-                                    if first_user_data.fbc: cookies["_fbc"] = first_user_data.fbc
-                                    if first_user_data.ttp: cookies["_ttp"] = first_user_data.ttp
-                                async def _ga4_sec(
-                                    events_data=events_data,
-                                    measurement_id=client.ga4_measurement_id,
-                                    api_secret=client.ga4_api_secret,
-                                    cookies=cookies,
-                                    ip_address=ip_address,
-                                    user_agent=user_agent,
-                                ):
-                                    try:
-                                        await send_to_ga4(
-                                            events=events_data,
-                                            measurement_id=measurement_id,
-                                            api_secret=api_secret,
-                                            cookies=cookies,
-                                            ip_address=ip_address,
-                                            user_agent=user_agent,
-                                        )
-                                    except Exception as se:
-                                        logger.warning(f"Secondary GA4 retry failed: {se}")
-                                secondary_tasks.append(_ga4_sec())
-
-                            if webhook_enabled:
-                                async def _webhook_sec(
-                                    webhook_url=client.webhook_url,
-                                    client_name=client.name,
-                                    events_data=events_data,
-                                ):
-                                    for event_data in events_data:
-                                        try:
-                                            await send_webhook(
-                                                webhook_url,
-                                                "event.sent",
-                                                {
-                                                    "client_name": client_name,
-                                                    "event_name": event_data.get("event_name"),
-                                                    "event_id": event_data.get("event_id"),
-                                                    "custom_data": event_data.get("custom_data", {}),
-                                                },
-                                            )
-                                        except Exception as se:
-                                            logger.warning(f"Secondary Webhook retry failed: {se}")
-                                secondary_tasks.append(_webhook_sec())
-
-                            if secondary_tasks:
-                                await asyncio.gather(*secondary_tasks)
+                        delivery_res = await deliver_events_to_platforms(client, events, context)
+                        primary_platform = delivery_res["primary_platform"]
+                        result = delivery_res["result"]
 
                         # সফল! স্ট্যাটাস আপডেট করো
                         failed.status = "success"

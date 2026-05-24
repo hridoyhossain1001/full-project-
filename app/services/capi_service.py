@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 import logging
 import os
@@ -16,20 +17,24 @@ HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "15.0"))
 # TCP connection reuse + HTTP/2 multiplexing = 3-5x faster Facebook API calls
 # প্রতি request-এ নতুন connection না খুলে reuse করে
 _http_client: httpx.AsyncClient | None = None
+_http_client_lock = asyncio.Lock()
 
 
 async def get_http_client() -> httpx.AsyncClient:
     """Singleton httpx client — connection pooling + HTTP/2 সাপোর্ট সহ"""
     global _http_client
     if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(
-            timeout=HTTP_TIMEOUT_SECONDS,
-            limits=httpx.Limits(
-                max_connections=HTTP_MAX_CONNECTIONS,
-                max_keepalive_connections=HTTP_MAX_KEEPALIVE_CONNECTIONS,
-            ),
-            http2=True,  # HTTP/2 multiplexing — একটা connection-এ multiple request!
-        )
+        async with _http_client_lock:
+            # Double-checked locking — another coroutine may have created it
+            if _http_client is None or _http_client.is_closed:
+                _http_client = httpx.AsyncClient(
+                    timeout=HTTP_TIMEOUT_SECONDS,
+                    limits=httpx.Limits(
+                        max_connections=HTTP_MAX_CONNECTIONS,
+                        max_keepalive_connections=HTTP_MAX_KEEPALIVE_CONNECTIONS,
+                    ),
+                    http2=True,  # HTTP/2 multiplexing — একটা connection-এ multiple request!
+                )
     return _http_client
 
 

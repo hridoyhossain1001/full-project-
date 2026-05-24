@@ -10,6 +10,7 @@ Endpoints:
 
 import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from urllib.parse import urlparse, parse_qs
@@ -36,6 +37,7 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+TRACKER_COOKIE_DOMAIN = os.getenv("TRACKER_COOKIE_DOMAIN", "").strip() or None
 
 
 # ─── Helper: API Key থেকে Client লোড (Query param version) ──────────────────
@@ -251,20 +253,29 @@ async def collect_event(
     unique_events = []
     try:
         candidate_ids = []
-        seen_ids = set()
+        seen_ids: set[str] = set()
+        no_id_events: list = []
         for event in parsed_events:
             # boost_event_quality generates stable event IDs for tracker payloads.
+            # Guard: events without an event_id skip dedup and go straight through.
+            if not event.event_id:
+                no_id_events.append(event)
+                continue
             if event.event_id in seen_ids:
                 continue
             seen_ids.add(event.event_id)
             candidate_ids.append(event.event_id)
 
         reserved_ids = await reserve_unique_event_ids(db, client.id, candidate_ids)
-        accepted_ids = set()
+        accepted_ids: set[str] = set()
         for event in parsed_events:
+            if not event.event_id:
+                continue  # already collected above
             if event.event_id in reserved_ids and event.event_id not in accepted_ids:
                 accepted_ids.add(event.event_id)
                 unique_events.append(event)
+        # Include events that had no event_id (cannot be deduplicated)
+        unique_events.extend(no_id_events)
 
         if not unique_events:
             await db.commit()
@@ -320,6 +331,7 @@ async def collect_event(
             secure=True,
             samesite="lax",
             path="/",
+            domain=TRACKER_COOKIE_DOMAIN,
         )
     if fbc_val:
         resp.set_cookie(
@@ -330,6 +342,7 @@ async def collect_event(
             secure=True,
             samesite="lax",
             path="/",
+            domain=TRACKER_COOKIE_DOMAIN,
         )
 
     return resp

@@ -26,6 +26,12 @@ router = APIRouter()
 
 MAX_EVENTS_PER_REQUEST = int(os.getenv("MAX_EVENTS_PER_REQUEST", "500"))
 CAPI_SIGNATURE_WINDOW_SECONDS = int(os.getenv("CAPI_SIGNATURE_WINDOW_SECONDS", "300"))
+FRAUD_INTERNAL_CUSTOM_KEYS = {
+    "raw_first_name",
+    "billing_first_name_raw",
+    "email_domain",
+    "billing_email_domain",
+}
 
 
 from app.utils.event_log_helpers import build_event_log_kwargs as _event_log_kwargs
@@ -63,6 +69,15 @@ def _verify_capi_signature(
         hashlib.sha256,
     ).hexdigest()
     return hmac.compare_digest(expected, signature)
+
+
+def _strip_internal_custom_data(event_dict: dict) -> dict:
+    """Remove fraud-only fields before storing or queueing ad-platform payloads."""
+    custom_data = event_dict.get("custom_data")
+    if isinstance(custom_data, dict):
+        for key in FRAUD_INTERNAL_CUSTOM_KEYS:
+            custom_data.pop(key, None)
+    return event_dict
 
 
 async def reserve_unique_events(
@@ -264,13 +279,25 @@ async def receive_events(
 
         # Purchase events → pending_events table; confirm flow sends these later.
         for event in deferred_events:
-            event_dict = event.model_dump(exclude_none=True)
             if event.custom_data and getattr(event.custom_data, "order_id", None):
                 order_id = event.custom_data.order_id
             elif event.event_id:
                 order_id = event.event_id
             else:
                 order_id = f"auto-{event.event_time}-{id(event)}"
+
+            # Calculate Fraud Score using our AdSync Heuristics Engine
+            from app.services.fraud_service import calculate_fraud_score
+            try:
+                fraud_score_val, fraud_details_val = await calculate_fraud_score(
+                    db, client.id, event, client_ip
+                )
+            except Exception as e:
+                logger.error(f"[{client.name}] Fraud score calculation failed for order {order_id}: {e}")
+                fraud_score_val = None
+                fraud_details_val = None
+
+            event_dict = _strip_internal_custom_data(event.model_dump(exclude_none=True))
 
             try:
                 async with db.begin_nested():
@@ -279,6 +306,8 @@ async def receive_events(
                         order_id=order_id,
                         event_data=event_dict,
                         status="pending",
+                        fraud_score=fraud_score_val,
+                        fraud_details=fraud_details_val,
                     )
                     db.add(pending)
                     await db.flush()  # unique constraint check
@@ -288,7 +317,10 @@ async def receive_events(
                 logger.warning(f"[{client.name}] Duplicate pending order: {order_id}")
 
         if queue_events:
-            events_as_dicts = [event.model_dump(exclude_none=True) for event in queue_events]
+            events_as_dicts = [
+                _strip_internal_custom_data(event.model_dump(exclude_none=True))
+                for event in queue_events
+            ]
             request_context = {
                 "ip_address": client_ip,
                 "user_agent": request.headers.get("user-agent", ""),

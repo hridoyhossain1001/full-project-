@@ -120,12 +120,20 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown — cleanup
+    # 🛑 Cancel background workers gracefully
+    logger.info("🛑 Buykori AdSync বন্ধ হচ্ছে — background tasks cancel করা হচ্ছে...")
+    for task in _background_tasks:
+        task.cancel()
+    if _background_tasks:
+        await asyncio.gather(*_background_tasks, return_exceptions=True)
+    _background_tasks.clear()
+
     # 🔒 HTTP client বন্ধ করো
     from app.services.capi_service import close_http_client
     await close_http_client()
     close_geoip_db()
 
-    logger.info("🛑 Buykori AdSync বন্ধ হচ্ছে...")
+    logger.info("🛑 Buykori AdSync বন্ধ হয়েছে।")
     await engine.dispose()
 
 
@@ -195,6 +203,9 @@ app.include_router(deferred_events_router, prefix="/api/v1", tags=["Deferred Eve
 app.include_router(analytics_router, prefix="/api/v1", tags=["Analytics"])
 app.include_router(debug_router, prefix="/api/v1", tags=["Debug & Testing"])
 app.include_router(client_auth_router, prefix="/api/v1", tags=["Client Auth"])
+
+from app.routers.client_api import router as client_api_router
+app.include_router(client_api_router, prefix="/api", tags=["Client Portal JSON API"])
 
 from app.routers.plugin import router as plugin_router
 app.include_router(plugin_router, prefix="/api/v1", tags=["Plugin"])
