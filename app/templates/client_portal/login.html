@@ -3,48 +3,277 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ title }} — Buykori AdSync</title>
-  <meta name="description" content="Buykori AdSync Client Portal — Manage your server-side event delivery.">
+  <title>{{ title }} - Buykori AdSync</title>
+  <meta name="description" content="Buykori AdSync Client Portal - Manage your server-side event delivery.">
   <link rel="stylesheet" href="/static/css/portal.css">
   <style>
-    body { justify-content: center; align-items: center; }
-    .login-bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
-    .login-blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.12; animation: float-blob 10s ease-in-out infinite alternate; }
-    @keyframes float-blob { from { transform: translate(0,0) scale(1); } to { transform: translate(30px,-20px) scale(1.08); } }
-    .login-wrap { position: relative; z-index: 1; width: 100%; max-width: 420px; padding: 24px 16px; }
-    .login-logo { text-align: center; margin-bottom: 32px; }
-    .login-logo-mark { width: 56px; height: 56px; border-radius: 16px; background: #ff8b45; display: inline-flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 900; color: #fff; font-family: 'Outfit', sans-serif; box-shadow: 0 0 0 1px rgba(255,139,69,0.38), 0 12px 40px rgba(255,139,69,0.35); margin-bottom: 16px; }
-    .login-logo h1 { font-size: 22px; font-weight: 800; color: #fff; font-family: 'Outfit', sans-serif; letter-spacing: -0.5px; margin: 0 0 6px; }
-    .login-logo p { font-size: 13px; color: #7c8fb5; }
-    .login-card { background: rgba(13,20,40,0.88); border: 1px solid rgba(148,163,184,0.1); border-radius: 18px; padding: 32px 28px; box-shadow: 0 24px 64px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05); backdrop-filter: blur(20px); }
-    .login-label { display: block; font-size: 12px; font-weight: 700; color: #7c8fb5; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; }
-    .login-input { width: 100%; padding: 13px 14px; background: rgba(0,0,0,0.4); border: 1px solid rgba(148,163,184,0.12); border-radius: 10px; color: #fff; font-size: 14px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; font-family: 'Inter', sans-serif; margin-bottom: 20px; }
-    .login-input:focus { border-color: rgba(255,139,69,0.5); box-shadow: 0 0 0 3px rgba(255,139,69,0.15); }
-    .login-btn { width: 100%; padding: 13px; background: linear-gradient(135deg, #ff8b45 0%, #ffae6b 100%); color: #111827; font-size: 15px; font-weight: 700; border: none; border-radius: 10px; cursor: pointer; font-family: 'Outfit', sans-serif; box-shadow: 0 6px 24px rgba(255,139,69,0.35); transition: all 0.2s; }
-    .login-btn:hover { background: linear-gradient(135deg, #ffae6b 0%, #ff8b45 100%); transform: translateY(-1px); box-shadow: 0 10px 32px rgba(255,139,69,0.45); }
-    .login-footer { text-align: center; margin-top: 20px; font-size: 12px; color: #475569; }
+    body {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      overflow: auto;
+      padding: 24px;
+      color: #fff;
+      background:
+        linear-gradient(120deg, rgba(8, 13, 30, 0.1), rgba(8, 13, 30, 0.35)),
+        url("https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=2200&q=85") center/cover fixed;
+    }
+
+    .auth-shell {
+      width: min(100%, 430px);
+      min-height: min(720px, calc(100vh - 48px));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .auth-card {
+      width: 100%;
+      border: 1px solid rgba(255, 255, 255, 0.58);
+      border-radius: 28px;
+      background: linear-gradient(145deg, rgba(255, 255, 255, 0.22), rgba(15, 23, 42, 0.26));
+      box-shadow:
+        0 30px 90px rgba(15, 23, 42, 0.36),
+        inset 0 1px 0 rgba(255, 255, 255, 0.52),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(22px) saturate(150%);
+      -webkit-backdrop-filter: blur(22px) saturate(150%);
+      padding: 28px 28px 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .auth-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(120deg, rgba(255,255,255,0.24), transparent 32%),
+        radial-gradient(circle at 78% 12%, rgba(255,255,255,0.18), transparent 32%);
+      pointer-events: none;
+    }
+
+    .auth-content { position: relative; z-index: 1; }
+    .brand-mark {
+      width: 58px;
+      height: 58px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 22px;
+      background: linear-gradient(135deg, rgba(255,139,69,0.95), rgba(255,174,107,0.86));
+      box-shadow: 0 14px 42px rgba(255,139,69,0.32), inset 0 1px 0 rgba(255,255,255,0.38);
+      font: 900 28px/1 'Outfit', sans-serif;
+      color: #fff;
+    }
+
+    .auth-title {
+      font: 800 31px/1.05 'Outfit', sans-serif;
+      letter-spacing: 0;
+      margin: 0 0 8px;
+      text-shadow: 0 2px 24px rgba(0,0,0,0.2);
+    }
+
+    .auth-subtitle {
+      color: rgba(255,255,255,0.82);
+      font-size: 14px;
+      margin-bottom: 22px;
+    }
+
+    .auth-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 5px;
+      border: 1px solid rgba(255,255,255,0.28);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.12);
+      margin-bottom: 22px;
+    }
+
+    .auth-tab {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 12px;
+      background: transparent;
+      color: rgba(255,255,255,0.76);
+      font-weight: 800;
+      cursor: pointer;
+      transition: 0.2s ease;
+    }
+
+    .auth-tab.active {
+      background: rgba(255,255,255,0.74);
+      color: #15213b;
+      box-shadow: 0 8px 24px rgba(15,23,42,0.18), inset 0 1px 0 rgba(255,255,255,0.75);
+    }
+
+    .auth-panel { display: none; }
+    .auth-panel.active { display: block; }
+
+    .field-group { display: grid; gap: 12px; margin-bottom: 14px; }
+    .glass-input {
+      width: 100%;
+      min-height: 49px;
+      border: 1px solid rgba(255,255,255,0.36);
+      border-radius: 15px;
+      background: rgba(255,255,255,0.13);
+      color: #fff;
+      padding: 0 16px;
+      outline: none;
+      font-size: 14px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
+      transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+    }
+
+    .glass-input::placeholder { color: rgba(255,255,255,0.68); }
+    .glass-input:focus {
+      border-color: rgba(255,255,255,0.72);
+      background: rgba(255,255,255,0.19);
+      box-shadow: 0 0 0 4px rgba(255,255,255,0.14), inset 0 1px 0 rgba(255,255,255,0.22);
+    }
+
+    .auth-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: rgba(255,255,255,0.8);
+      font-size: 12px;
+      margin: 4px 0 18px;
+    }
+
+    .check-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .check-label input { accent-color: #55c96f; width: 15px; height: 15px; }
+
+    .auth-submit {
+      width: 100%;
+      min-height: 52px;
+      border: 0;
+      border-radius: 15px;
+      background: linear-gradient(100deg, #d8e51e, #23bf76 74%);
+      color: #fff;
+      font: 800 16px/1 'Outfit', sans-serif;
+      cursor: pointer;
+      box-shadow: 0 16px 35px rgba(35,191,118,0.28), inset 0 1px 0 rgba(255,255,255,0.28);
+      transition: transform 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .auth-submit:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 20px 42px rgba(35,191,118,0.34), inset 0 1px 0 rgba(255,255,255,0.32);
+    }
+
+    .auth-switch {
+      margin-top: 14px;
+      text-align: center;
+      color: rgba(255,255,255,0.82);
+      font-size: 12px;
+    }
+
+    .auth-link {
+      color: #fff;
+      border: 0;
+      background: transparent;
+      font-weight: 800;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .auth-error {
+      border: 1px solid rgba(248,113,113,0.45);
+      background: rgba(127,29,29,0.28);
+      color: #fee2e2;
+      border-radius: 14px;
+      padding: 10px 12px;
+      font-size: 12px;
+      margin-bottom: 14px;
+    }
+
+    .auth-footer {
+      margin-top: 28px;
+      text-align: center;
+      color: rgba(255,255,255,0.75);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    @media (max-width: 520px) {
+      body { padding: 14px; }
+      .auth-shell { min-height: calc(100vh - 28px); }
+      .auth-card { padding: 24px 20px 20px; border-radius: 24px; }
+      .auth-title { font-size: 28px; }
+    }
   </style>
 </head>
 <body>
-  <div class="login-bg">
-    <div class="login-blob" style="width:500px;height:500px;top:-200px;left:-150px;background:#ff8b45;"></div>
-    <div class="login-blob" style="width:400px;height:400px;bottom:-150px;right:-100px;background:#ffae6b;animation-delay:-4s;"></div>
-    <div class="login-blob" style="width:300px;height:300px;top:50%;left:60%;background:#06b6d4;animation-delay:-7s;"></div>
-  </div>
-  <div class="login-wrap">
-    <div class="login-logo">
-      <div class="login-logo-mark">B</div>
-      <h1>Buykori AdSync</h1>
-      <p>Sign in to your Client Portal</p>
-    </div>
-    <div class="login-card">
-      <form action="/client/login" method="post" autocomplete="off">
-        <label class="login-label" for="api_key_input">Portal Login Key</label>
-        <input class="login-input" type="password" id="api_key_input" name="api_key" required placeholder="Paste your Portal Login Key here…" autocomplete="off">
-        <button type="submit" class="login-btn">Sign In to Dashboard &rarr;</button>
-      </form>
-    </div>
-    <div class="login-footer">&copy; Buykori AdSync &mdash; Secure Server-Side Tracking</div>
-  </div>
+  <main class="auth-shell">
+    <section class="auth-card" aria-label="Buykori client authentication">
+      <div class="auth-content">
+        <div class="brand-mark">B</div>
+        <h1 class="auth-title">Welcome</h1>
+        <p class="auth-subtitle">Login or create a client account to continue.</p>
+
+        <div class="auth-tabs" role="tablist" aria-label="Authentication options">
+          <button class="auth-tab {% if active_tab != 'signup' %}active{% endif %}" type="button" data-tab="login">Login</button>
+          <button class="auth-tab {% if active_tab == 'signup' %}active{% endif %}" type="button" data-tab="signup">Signup</button>
+        </div>
+
+        {% if error %}
+        <div class="auth-error">{{ error }}</div>
+        {% endif %}
+
+        <form class="auth-panel {% if active_tab != 'signup' %}active{% endif %}" id="login-panel" action="/client/login" method="post" autocomplete="on">
+          <div class="field-group">
+            <input class="glass-input" type="email" name="email" placeholder="Email address" autocomplete="email" required>
+            <input class="glass-input" type="password" name="password" placeholder="Password" autocomplete="current-password" required>
+          </div>
+          <div class="auth-row">
+            <label class="check-label"><input type="checkbox" checked> Remember me</label>
+            <span>Secure portal</span>
+          </div>
+          <button class="auth-submit" type="submit">Login</button>
+          <p class="auth-switch">Don't have an account? <button class="auth-link" type="button" data-switch="signup">Signup</button></p>
+        </form>
+
+        <form class="auth-panel {% if active_tab == 'signup' %}active{% endif %}" id="signup-panel" action="/client/signup" method="post" autocomplete="on">
+          <div class="field-group">
+            <input class="glass-input" type="text" name="full_name" placeholder="Full name" autocomplete="name" required>
+            <input class="glass-input" type="text" name="business_name" placeholder="Business name" autocomplete="organization" required>
+            <input class="glass-input" type="email" name="email" placeholder="Email address" autocomplete="email" required>
+            <input class="glass-input" type="password" name="password" placeholder="Create password" autocomplete="new-password" minlength="8" required>
+            <input class="glass-input" type="text" name="domain" placeholder="Website domain optional">
+          </div>
+          <button class="auth-submit" type="submit">Create Account</button>
+          <p class="auth-switch">Already have an account? <button class="auth-link" type="button" data-switch="login">Login</button></p>
+        </form>
+
+        <div class="auth-footer">Created by Buykori AdSync</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const tabs = document.querySelectorAll('[data-tab]');
+    const switches = document.querySelectorAll('[data-switch]');
+    const loginPanel = document.getElementById('login-panel');
+    const signupPanel = document.getElementById('signup-panel');
+
+    function activateAuthTab(name) {
+      tabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === name));
+      loginPanel.classList.toggle('active', name === 'login');
+      signupPanel.classList.toggle('active', name === 'signup');
+    }
+
+    tabs.forEach((tab) => tab.addEventListener('click', () => activateAuthTab(tab.dataset.tab)));
+    switches.forEach((button) => button.addEventListener('click', () => activateAuthTab(button.dataset.switch)));
+  </script>
 </body>
 </html>

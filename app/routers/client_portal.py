@@ -9,10 +9,20 @@ from typing import Optional
 
 from app.database import get_db
 from app.models.client import Client
+from app.models.client_user import ClientUser
 from app.models.event_log import EventLog
 from app.models.pending_event import PendingEvent
 from app.utils.display import display_domain_url, mask_secret
 from app.security import encrypt_token, decrypt_token
+from app.routers.client_auth import (
+    _clean_domain,
+    _clean_name,
+    _create_session,
+    _validate_email,
+    _validate_password,
+    get_client_user_from_cookie,
+)
+from app.services.auth_service import hash_password, verify_password
 from app.limiter import limiter
 from fastapi.templating import Jinja2Templates
 
@@ -35,6 +45,12 @@ def get_client_from_cookie(request: Request) -> Optional[str]:
 
 
 async def get_client_from_portal_session(request: Request, db: AsyncSession) -> Optional[Client]:
+    try:
+        _, client, _ = await get_client_user_from_cookie(request, db)
+        return client
+    except HTTPException:
+        pass
+
     session_value = get_client_from_cookie(request)
     if not session_value:
         return None
@@ -57,46 +73,125 @@ async def get_client_from_portal_session(request: Request, db: AsyncSession) -> 
 
 
 @router.get("/client", response_class=HTMLResponse, include_in_schema=False)
-async def client_login_page(request: Request):
-    api_key = get_client_from_cookie(request)
-    if api_key:
+async def client_login_page(request: Request, db: AsyncSession = Depends(get_db)):
+    client = await get_client_from_portal_session(request, db)
+    if client:
         return RedirectResponse(url="/client/dashboard", status_code=303)
 
     return templates.TemplateResponse(
         request,
         "client_portal/login.html",
-        {"title": "Client Login"}
+        {"title": "Client Login", "active_tab": "login"}
     )
 
 
 @router.post("/client/login", include_in_schema=False)
 @limiter.limit("5/minute")
-async def client_login(request: Request, response: Response, api_key: str = Form(...), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(Client).where(or_(Client.portal_key == api_key, Client.api_key == api_key))
-    )
-    client = result.scalar_one_or_none()
-    portal_key = getattr(client, "portal_key", None) if client else None
-    portal_key_ok = bool(portal_key) and secrets.compare_digest(portal_key, api_key)
-    legacy_api_key_ok = bool(client and not portal_key) and secrets.compare_digest(client.api_key, api_key)
-
-    if not client or not client.is_active or not (portal_key_ok or legacy_api_key_ok):
+async def client_login(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    email = _validate_email(email)
+    result = await db.execute(select(ClientUser).where(ClientUser.email == email))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active or not verify_password(password, user.password_hash):
         return templates.TemplateResponse(
             request,
             "client_portal/login_failed.html",
-            {"title": "Login Failed"},
+            {"title": "Login Failed", "message": "Invalid email or password."},
+            status_code=401
+        )
+
+    client_r = await db.execute(select(Client).where(Client.id == user.client_id))
+    client = client_r.scalar_one_or_none()
+    if not client or not client.is_active:
+        return templates.TemplateResponse(
+            request,
+            "client_portal/login_failed.html",
+            {"title": "Login Failed", "message": "This workspace is inactive."},
             status_code=401
         )
 
     redirect = RedirectResponse(url="/client/dashboard", status_code=303)
-    redirect.set_cookie(
-        key="client_session",
-        value=encrypt_token(f"client:{client.id}:{getattr(client, 'portal_key', None) or client.api_key}"),
-        httponly=True,
-        secure=True,
-        samesite="lax",
-        max_age=86400 * 7,  # 7 days
+    user.last_login_at = datetime.datetime.now(datetime.timezone.utc)
+    await _create_session(db, user, redirect)
+    await db.commit()
+    return redirect
+
+
+@router.post("/client/signup", include_in_schema=False)
+@limiter.limit("5/minute")
+async def client_signup_form(
+    request: Request,
+    full_name: str = Form(...),
+    business_name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    domain: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        clean_email = _validate_email(email)
+        _validate_password(password)
+        clean_full_name = _clean_name(full_name, "Full name")
+        clean_business_name = _clean_name(business_name, "Business name")
+        clean_domain = _clean_domain(domain)
+    except HTTPException as exc:
+        return templates.TemplateResponse(
+            request,
+            "client_portal/login.html",
+            {"title": "Client Login", "active_tab": "signup", "error": exc.detail},
+            status_code=400,
+        )
+
+    existing = await db.execute(select(ClientUser).where(ClientUser.email == clean_email))
+    if existing.scalar_one_or_none():
+        return templates.TemplateResponse(
+            request,
+            "client_portal/login.html",
+            {
+                "title": "Client Login",
+                "active_tab": "signup",
+                "error": "An account already exists for this email.",
+            },
+            status_code=409,
+        )
+
+    client = Client(
+        name=clean_business_name,
+        pixel_id="0",
+        access_token=encrypt_token("pending_setup"),
+        domain=clean_domain,
+        api_key=secrets.token_urlsafe(32),
+        public_key=secrets.token_urlsafe(24),
+        portal_key=None,
+        enable_facebook=False,
+        enable_tiktok=False,
+        enable_ga4=False,
+        monthly_limit=1000,
+        daily_quota=1000,
+        rate_limit=120,
     )
+    db.add(client)
+    await db.flush()
+
+    user = ClientUser(
+        client_id=client.id,
+        email=clean_email,
+        password_hash=hash_password(password),
+        full_name=clean_full_name,
+        role="owner",
+        is_active=True,
+        email_verified=False,
+    )
+    db.add(user)
+    await db.flush()
+
+    redirect = RedirectResponse(url="/client/dashboard", status_code=303)
+    await _create_session(db, user, redirect)
+    await db.commit()
     return redirect
 
 
@@ -104,6 +199,7 @@ async def client_login(request: Request, response: Response, api_key: str = Form
 async def client_logout():
     redirect = RedirectResponse(url="/client", status_code=303)
     redirect.delete_cookie("client_session")
+    redirect.delete_cookie("buykori_client_session", domain=".buykori.app", path="/", secure=True, httponly=True, samesite="none")
     return redirect
 
 

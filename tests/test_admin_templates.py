@@ -1,5 +1,6 @@
 import os
 import pytest
+from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 
 # Set up environment variables required by the app before importing it
@@ -10,11 +11,15 @@ os.environ["ENCRYPTION_KEY"] = "ZFhnf1szwemka8kBbH9jPTC7oKBRTEv0EqWt1J8AD0M="
 
 from app.main import app
 from app.database import get_db
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from app.database import Base
 from app.models.client import Client
+from app.models.client_session import ClientSession
+from app.models.client_user import ClientUser
 from app.security import encrypt_token
+from app.services.auth_service import hash_password, hash_session_token
 
 # Setup clean async database engine for testing
 engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
@@ -156,16 +161,21 @@ async def test_client_login_page_render():
     response = client.get("/client")
     assert response.status_code == 200
     assert "Buykori AdSync" in response.text
-    assert "Sign in to your Client Portal" in response.text
+    assert "Login" in response.text
+    assert "Signup" in response.text
+    assert "Portal Login Key" not in response.text
 
 
 @pytest.mark.anyio
 async def test_client_login_failed_page_render():
     client = TestClient(app)
-    response = client.post("/client/login", data={"api_key": "invalid-key"})
+    response = client.post(
+        "/client/login",
+        data={"email": "missing@example.com", "password": "wrong-password"},
+    )
     assert response.status_code == 401
     assert "Access Denied" in response.text
-    assert "Invalid or inactive Portal Login Key" in response.text
+    assert "Invalid email or password" in response.text
 
 
 @pytest.mark.anyio
@@ -205,6 +215,72 @@ async def test_client_dashboard_render():
     assert response.status_code == 200
     assert '<div id="root"></div>' in response.text
     assert '/static/client-portal/assets/' in response.text
+
+
+@pytest.mark.anyio
+async def test_client_dashboard_render_with_email_session():
+    async with TestingSessionLocal() as session:
+        test_client = Client(
+            name="Email Session Store",
+            api_key="email-session-api-key",
+            portal_key=None,
+            pixel_id="1234567890",
+            access_token=encrypt_token("test-fb-token"),
+            is_active=True,
+        )
+        session.add(test_client)
+        await session.flush()
+        user = ClientUser(
+            client_id=test_client.id,
+            email="owner@email-session.test",
+            password_hash=hash_password("correct-password"),
+            full_name="Owner User",
+            role="owner",
+            is_active=True,
+            email_verified=True,
+        )
+        session.add(user)
+        await session.flush()
+        token = "email-session-token"
+        session.add(ClientSession(
+            user_id=user.id,
+            client_id=test_client.id,
+            token_hash=hash_session_token(token),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        ))
+        await session.commit()
+
+    client = TestClient(app)
+    client.cookies.set("buykori_client_session", encrypt_token(token))
+
+    response = client.get("/client/dashboard")
+    assert response.status_code == 200
+    assert '<div id="root"></div>' in response.text
+
+
+@pytest.mark.anyio
+async def test_client_signup_form_creates_email_user():
+    client = TestClient(app)
+    response = client.post(
+        "/client/signup",
+        data={
+            "full_name": "New Owner",
+            "business_name": "New Signup Store",
+            "email": "new-owner@example.com",
+            "password": "strong-password-123",
+            "domain": "example.com",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/client/dashboard"
+
+    async with TestingSessionLocal() as session:
+        user_r = await session.execute(
+            select(ClientUser).where(ClientUser.email == "new-owner@example.com")
+        )
+        user = user_r.scalar_one_or_none()
+        assert user is not None
 
 
 @pytest.mark.anyio
