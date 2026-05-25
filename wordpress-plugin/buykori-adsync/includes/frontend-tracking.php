@@ -74,6 +74,7 @@ function buykorigw_inject_tracker() {
         'rest_nonce'  => wp_create_nonce( 'wp_rest' ),
         'tracking_mode' => buykorigw_resolve_tracking_mode( $settings ),
         'content_id_format' => isset( $settings['content_id_format'] ) ? $settings['content_id_format'] : 'id',
+        'currency' => function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : 'BDT',
         'enable_hybrid' => isset( $settings['enable_hybrid'] ) ? (bool) $settings['enable_hybrid'] : false,
         'enable_variations' => isset( $settings['enable_variations'] ) ? (bool) $settings['enable_variations'] : false,
         'fb_pixel_id'  => isset( $settings['fb_pixel_id'] ) ? trim( $settings['fb_pixel_id'] ) : '',

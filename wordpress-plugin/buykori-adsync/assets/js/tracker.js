@@ -154,6 +154,84 @@
         return (window.location.pathname || '/').replace(/[^a-zA-Z0-9_-]+/g, '_');
     }
 
+    function getText(selector, root) {
+        var el = (root || document).querySelector(selector);
+        return el ? String(el.textContent || '').trim() : '';
+    }
+
+    function parsePrice(value) {
+        if (value === null || value === undefined) return 0;
+        var cleaned = String(value).replace(/[^0-9.,-]+/g, '').replace(/,/g, '');
+        var parsed = parseFloat(cleaned);
+        return isNaN(parsed) ? 0 : parsed;
+    }
+
+    function getProductDataFromElement(el) {
+        if (!el) return null;
+        var productId = el.getAttribute('data-product_id') ||
+            el.getAttribute('data-product-id') ||
+            el.getAttribute('data-productid') ||
+            el.getAttribute('value') ||
+            '';
+        var addButton = el.matches && el.matches('.add_to_cart_button, .single_add_to_cart_button')
+            ? el
+            : el.querySelector('.add_to_cart_button, .single_add_to_cart_button, [data-product_id], [data-product-id]');
+        if (!productId && addButton) {
+            productId = addButton.getAttribute('data-product_id') || addButton.getAttribute('data-product-id') || '';
+        }
+        if (!productId && cfg.product && cfg.product.id) {
+            productId = String(cfg.product.id);
+        }
+        if (!productId) return null;
+
+        var sku = (addButton && addButton.getAttribute('data-product_sku')) || el.getAttribute('data-product_sku') || el.getAttribute('data-product-sku') || '';
+        var contentId = (cfg.content_id_format === 'sku' && sku) ? sku : String(productId);
+        var name = (addButton && addButton.getAttribute('data-product_name')) ||
+            el.getAttribute('data-product_name') ||
+            el.getAttribute('data-product-name') ||
+            getText('.woocommerce-loop-product__title, .product_title, h1, h2, h3, [itemprop="name"]', el) ||
+            (cfg.product ? cfg.product.name : '');
+        var price = parsePrice(
+            (addButton && addButton.getAttribute('data-product_price')) ||
+            el.getAttribute('data-product_price') ||
+            el.getAttribute('data-product-price') ||
+            getText('.price .amount, .price, [data-product-price]', el) ||
+            (cfg.product ? cfg.product.price : 0)
+        );
+
+        return {
+            id: contentId,
+            raw_id: String(productId),
+            name: name,
+            price: price,
+            currency: (cfg.product ? cfg.product.currency : '') || cfg.currency || 'BDT',
+            category: (cfg.product ? cfg.product.category : '') || ''
+        };
+    }
+
+    function productPayloadFromData(productData) {
+        if (!productData) return null;
+        var item = {
+            id: String(productData.id),
+            content_id: String(productData.id),
+            content_type: 'product',
+            content_name: productData.name || '',
+            content_category: productData.category || '',
+            quantity: 1,
+            item_price: productData.price || 0,
+            price: productData.price || 0
+        };
+        return {
+            content_ids: [String(productData.id)],
+            contents: [item],
+            content_name: productData.name || '',
+            content_type: 'product',
+            content_category: productData.category || '',
+            value: productData.price || 0,
+            currency: productData.currency || 'BDT'
+        };
+    }
+
     // ─── First-Party Cookie Helpers ──────────────────────────────────────
     function ensureFirstPartyCookies() {
         if (!getCookie('_fbp')) {
@@ -589,14 +667,20 @@
         if (isOnePageMode() && typeof IntersectionObserver !== 'undefined') {
             var productSurface = document.querySelector('.product, .summary, form.cart, [data-product_id]');
             if (productSurface) {
+                var productViewTimer = null;
                 var viewObserver = new IntersectionObserver(function(entries) {
                     entries.forEach(function(entry) {
-                        if (entry.isIntersecting) {
-                            sendViewContentOnce();
-                            viewObserver.disconnect();
+                        if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+                            clearTimeout(productViewTimer);
+                            productViewTimer = setTimeout(function() {
+                                sendViewContentOnce();
+                                viewObserver.disconnect();
+                            }, 1000);
+                        } else {
+                            clearTimeout(productViewTimer);
                         }
                     });
-                }, { threshold: 0.35 });
+                }, { threshold: [0, 0.5, 0.75] });
                 viewObserver.observe(productSurface);
             } else {
                 setTimeout(sendViewContentOnce, 1200);
@@ -651,6 +735,54 @@
         }
     }
 
+    function observeLandingProductCards() {
+        if (!cfg.events || !cfg.events.viewcontent || !isOnePageMode() || typeof IntersectionObserver === 'undefined') return;
+        if (cfg.page_type === 'product' && cfg.product) return;
+        var selector = [
+            '[data-buykori-product]',
+            '[data-product_id]',
+            '[data-product-id]',
+            '.products .product',
+            '.wc-block-grid__product',
+            '.wp-block-woocommerce-product-template .product'
+        ].join(', ');
+        var cards = Array.prototype.slice.call(document.querySelectorAll(selector)).filter(function(el) {
+            return getProductDataFromElement(el);
+        });
+        if (!cards.length) return;
+
+        var timers = [];
+        var observer = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                var el = entry.target;
+                var idx = cards.indexOf(el);
+                var data = getProductDataFromElement(el);
+                if (!data) return;
+                if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+                    clearTimeout(timers[idx]);
+                    timers[idx] = setTimeout(function() {
+                        if (!eventOnce('ViewContentCard:' + String(data.id) + ':' + currentPathKey(), 1800)) return;
+                        var payload = productPayloadFromData(data);
+                        if (payload) sendEvent('ViewContent', payload);
+                        observer.unobserve(el);
+                    }, 1000);
+                } else {
+                    clearTimeout(timers[idx]);
+                }
+            });
+        }, { threshold: [0, 0.5, 0.75] });
+
+        cards.forEach(function(card) {
+            observer.observe(card);
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', observeLandingProductCards);
+    } else {
+        observeLandingProductCards();
+    }
+
     // ─── 3. AddToCart ──────────────────────────────────────────────────
     if (cfg.events && cfg.events.addtocart) {
         var addToCartFiredViaAjax = false;
@@ -699,6 +831,7 @@
                     item.attributes = attributes;
                 }
 
+                if (!eventOnce('AddToCart:' + String(pid || 'unknown') + ':' + currentPathKey(), 2)) return;
                 sendEvent('AddToCart', {
                     content_ids: pid ? [String(pid)] : [],
                     contents: pid ? [item] : [],
@@ -766,6 +899,7 @@
                 item.attributes = attributes;
             }
 
+            if (!eventOnce('AddToCart:' + String(productId) + ':' + currentPathKey(), 2)) return;
             sendEvent('AddToCart', {
                 content_ids: [String(productId)],
                 contents: [item],
@@ -776,6 +910,22 @@
                 currency: cfg.product ? cfg.product.currency : 'BDT'
             });
         });
+
+        document.addEventListener('click', function(e) {
+            if (!isOnePageMode()) return;
+            var cta = e.target.closest('[data-buykori-addtocart], [data-buykori-atc], .buykorigw-addtocart-intent');
+            if (!cta) return;
+            if (cta.closest('.add_to_cart_button, .single_add_to_cart_button')) return;
+            var surface = cta.closest('[data-buykori-product], [data-product_id], [data-product-id], .product, .wc-block-grid__product') || cta;
+            var data = getProductDataFromElement(surface);
+            if (!data) return;
+            if (!eventOnce('AddToCartIntent:' + String(data.id) + ':' + currentPathKey(), 2)) return;
+            var payload = productPayloadFromData(data);
+            if (payload) {
+                payload.trigger_reason = 'landing_cta_click';
+                sendEvent('AddToCart', payload);
+            }
+        }, true);
     }
 
     // ─── 4. InitiateCheckout ───────────────────────────────────────────
@@ -816,6 +966,7 @@
     }
 
     function sendInitiateCheckoutOnSurface(reason) {
+        if (isOnePageMode()) return;
         if (!hasCheckoutSurface()) return;
         sendInitiateCheckoutWhenReady(reason || 'checkout_surface_ready', hasCheckoutCartData());
     }
@@ -867,6 +1018,7 @@
 
         document.addEventListener('input', maybeFireFromField, true);
         document.addEventListener('change', maybeFireFromField, true);
+        document.addEventListener('focusin', maybeFireFromField, true);
         document.addEventListener('click', function(e) {
             if (e.target.closest('#place_order, .wc-block-components-checkout-place-order-button, [name="woocommerce_checkout_place_order"]')) {
                 sendInitiateCheckoutWhenReady('place_order_click', true, true);
@@ -880,6 +1032,7 @@
 
         if (window.jQuery && window.jQuery(document.body).on) {
             window.jQuery(document.body).on('init_checkout updated_checkout checkout_place_order', function(e) {
+                if (isOnePageMode() && (!e || e.type !== 'checkout_place_order')) return;
                 sendInitiateCheckoutWhenReady(e && e.type ? e.type : 'woocommerce_checkout_event', true);
             });
         }
@@ -917,16 +1070,16 @@
 
     if (cfg.events && cfg.events.checkout) {
         bindCheckoutIntentTracking();
-        scheduleCheckoutSurfaceChecks('checkout');
+        if (!isOnePageMode()) scheduleCheckoutSurfaceChecks('checkout');
 
         document.addEventListener('DOMContentLoaded', function() {
             bindCheckoutIntentTracking();
-            scheduleCheckoutSurfaceChecks('checkout');
+            if (!isOnePageMode()) scheduleCheckoutSurfaceChecks('checkout');
         });
 
         setTimeout(function() {
             bindCheckoutIntentTracking();
-            scheduleCheckoutSurfaceChecks('checkout');
+            if (!isOnePageMode()) scheduleCheckoutSurfaceChecks('checkout');
         }, 1200);
 
         if (typeof MutationObserver !== 'undefined') {
@@ -940,7 +1093,7 @@
                 checkoutObserverTimeout = setTimeout(function() {
                     if (isCheckoutFlowPage()) {
                         bindCheckoutIntentTracking();
-                        sendInitiateCheckoutOnSurface('checkout_surface_ready');
+                        if (!isOnePageMode()) sendInitiateCheckoutOnSurface('checkout_surface_ready');
                         if (initiateCheckoutSent && checkoutIntentBound) {
                             checkoutObserver.disconnect();
                         }

@@ -369,7 +369,7 @@ function buykorigw_settings_page() {
                             <option value="standard" <?php selected( $settings['tracking_mode'], 'standard' ); ?>>Standard WooCommerce checkout</option>
                             <option value="one_page" <?php selected( $settings['tracking_mode'], 'one_page' ); ?>>One-page landing / embedded checkout</option>
                         </select>
-                        <p class="description">Use one-page mode when product, cart and checkout live on the same landing page. InitiateCheckout will wait for customer intent instead of firing on page load.</p>
+                        <p class="description">Use one-page mode when product, cart and checkout live on the same landing page. ViewContent waits until a product is visible, AddToCart waits for a real CTA/cart action, and InitiateCheckout waits for checkout form intent instead of firing on page load.</p>
                     </div>
                 </div>
 

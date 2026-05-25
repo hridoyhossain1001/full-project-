@@ -4,7 +4,7 @@ Tags: facebook, capi, server-side tracking, woocommerce, pixel, ga4, tiktok
 Requires at least: 5.8
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.2.3
+Stable tag: 1.2.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -43,6 +43,12 @@ Buykori AdSync প্লাগইন আপনার WooCommerce স্টোর
 ক্যাশ-অন-ডেলিভারি (COD) অর্ডারের ক্ষেত্রে Purchase ইভেন্ট তখনই Facebook-এ পাঠানো হয় যখন আপনি অর্ডারটি "Completed" করেন। এতে ফেক অর্ডারের ডাটা Facebook-এ যায় না।
 
 == Changelog ==
+
+= 1.2.4 =
+* Tightened one-page landing mode so InitiateCheckout no longer fires from checkout surface/page-load checks
+* ViewContent now waits for 50% product visibility plus a short dwell delay in one-page mode
+* Added multi-product landing card ViewContent support for WooCommerce product grids and data-product blocks
+* Added duplicate guards for AddToCart click/AJAX events and optional CTA intent selectors
 
 = 1.2.3 =
 * Ensured TikTok Events API always receives a singular content_id for catalog matching diagnostics

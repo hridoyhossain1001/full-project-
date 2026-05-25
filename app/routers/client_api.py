@@ -10,6 +10,7 @@ from sqlalchemy import select, func, and_, update, desc, cast, Float
 from app.database import get_db
 from app.models.client import Client
 from app.models.event_log import EventLog
+from app.models.event_outbox import EventOutbox
 from app.models.pending_event import PendingEvent
 from app.models.usage_counter import UsageCounter
 from app.routers.client_portal import get_client_from_portal_session
@@ -270,8 +271,13 @@ async def revoke_wp_token(
     client: Client = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db)
 ):
+    old_api_key = client.api_key
+    client.api_key = secrets.token_urlsafe(32)
     client.public_key = secrets.token_urlsafe(24)
     await db.commit()
+    from app.dependencies import clear_client_cache
+    clear_client_cache(old_api_key)
+    clear_client_cache(client.api_key)
     return {
         "success": True,
         "connection": {
@@ -592,6 +598,110 @@ async def get_api_logs(
     return {
         "logs": api_logs_list,
         "totalCount": len(api_logs_list)
+    }
+
+
+def _summarize_outbox_payload(payload) -> dict:
+    events = payload if isinstance(payload, list) else []
+    names = []
+    event_ids = []
+    for event in events[:10]:
+        if not isinstance(event, dict):
+            continue
+        event_name = event.get("event_name") or "Unknown"
+        if event_name not in names:
+            names.append(event_name)
+        event_id = event.get("event_id")
+        if event_id:
+            event_ids.append(event_id)
+    return {
+        "eventNames": names or ["Unknown"],
+        "eventCount": len(events),
+        "eventIds": event_ids[:5],
+    }
+
+
+def _serialize_outbox_row(row: EventOutbox) -> dict:
+    summary = _summarize_outbox_payload(row.event_payload)
+    return {
+        "id": row.id,
+        "status": row.status,
+        "attempts": row.attempts or 0,
+        "maxAttempts": row.max_attempts or 0,
+        "nextAttemptAt": row.next_attempt_at.isoformat() if row.next_attempt_at else None,
+        "lastError": row.last_error or "",
+        "createdAt": row.created_at.isoformat() if row.created_at else datetime.now(timezone.utc).isoformat(),
+        "sentAt": row.sent_at.isoformat() if row.sent_at else None,
+        "locked": bool(row.locked_at and row.status == "processing"),
+        "eventNames": summary["eventNames"],
+        "eventCount": summary["eventCount"],
+        "eventIds": summary["eventIds"],
+    }
+
+
+@router.get("/outbox")
+async def get_outbox_rows(
+    client: Client = Depends(get_current_portal_client),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(25, ge=1, le=100),
+    status: Optional[str] = Query(None),
+):
+    statuses = [s.strip().lower() for s in status.split(",")] if status else ["dead", "queued", "processing"]
+    allowed_statuses = {"queued", "processing", "dead", "sent"}
+    statuses = [s for s in statuses if s in allowed_statuses]
+    if not statuses:
+        raise HTTPException(status_code=400, detail="Invalid outbox status filter.")
+
+    result = await db.execute(
+        select(EventOutbox)
+        .where(
+            EventOutbox.client_id == client.id,
+            EventOutbox.status.in_(statuses),
+        )
+        .order_by(desc(EventOutbox.created_at))
+        .limit(limit)
+    )
+    rows = result.scalars().all()
+    return {
+        "items": [_serialize_outbox_row(row) for row in rows],
+        "totalCount": len(rows),
+    }
+
+
+@router.post("/outbox/{outbox_id}/retry")
+async def retry_outbox_row(
+    outbox_id: int,
+    client: Client = Depends(get_current_portal_client),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(EventOutbox)
+        .where(EventOutbox.id == outbox_id, EventOutbox.client_id == client.id)
+        .with_for_update()
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Outbox row not found.")
+    if row.status == "processing":
+        raise HTTPException(status_code=409, detail="This event is already being processed.")
+    if row.status == "sent":
+        raise HTTPException(status_code=400, detail="Sent events cannot be retried.")
+
+    row.status = "queued"
+    row.locked_at = None
+    row.locked_by = None
+    row.next_attempt_at = datetime.now(timezone.utc)
+    row.last_error = None
+    attempts = row.attempts or 0
+    max_attempts = row.max_attempts or 0
+    if attempts >= max_attempts:
+        row.max_attempts = attempts + 1
+
+    await db.commit()
+    await db.refresh(row)
+    return {
+        "success": True,
+        "item": _serialize_outbox_row(row),
     }
 
 @router.get("/events/live-stream")

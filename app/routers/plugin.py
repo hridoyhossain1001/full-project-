@@ -21,7 +21,7 @@ router = APIRouter(tags=["Plugin"])
 
 # Keep the update version tied to the packaged plugin. A stale Heroku
 # PLUGIN_VERSION config var can hide available updates from WordPress.
-PLUGIN_VERSION = "1.2.3"
+PLUGIN_VERSION = "1.2.4"
 PLUGIN_SOURCE_DIR = Path(__file__).resolve().parents[2] / "wordpress-plugin" / "buykori-adsync"
 PLUGIN_ZIP_PATH = Path(
     os.getenv(
@@ -75,9 +75,15 @@ def _plugin_update_response(download_url: str, package_sha256: str, signature: s
         "requires": "5.8",
         "tested": "6.7",
         "requires_php": "7.4",
-        "last_updated": "2026-05-21",
+        "last_updated": "2026-05-25",
         "description": "Official Buykori AdSync WordPress plugin for server-side Facebook CAPI, TikTok, and GA4 tracking with one-page landing support and deferred purchase control.",
         "changelog": (
+            "<h4>v1.2.4</h4><ul>"
+            "<li>Tightened one-page landing mode so InitiateCheckout no longer fires from checkout surface/page-load checks</li>"
+            "<li>ViewContent now waits for 50% product visibility plus a short dwell delay in one-page mode</li>"
+            "<li>Added multi-product landing card ViewContent support for WooCommerce product grids and data-product blocks</li>"
+            "<li>Added duplicate guards for AddToCart click/AJAX events and optional CTA intent selectors</li>"
+            "</ul>"
             "<h4>v1.2.3</h4><ul>"
             "<li>Ensured TikTok Events API always receives a singular content_id for catalog matching diagnostics</li>"
             "<li>Allowed REST tracking requests to accept custom_data directly as well as event_data</li>"
