@@ -248,7 +248,7 @@ async def bridge_redis_stream_forever() -> None:
         try:
             bridged = await bridge_redis_stream_once()
             if bridged:
-                logger.info(f"Bridged {bridged} Redis Stream event batch(es) to DB outbox")
+                logger.debug(f"Bridged {bridged} Redis Stream event batch(es) to DB outbox")
         except Exception as exc:
             logger.error(f"Redis Stream ingest bridge error: {exc}")
             await asyncio.sleep(WORKER_POLL_SECONDS)
@@ -397,7 +397,7 @@ async def process_outbox_row(row_id: int) -> None:
                         logger.warning(f"[{client.name}] Usage rollback failed for filtered events: {usage_err}")
 
                 await db.commit()
-                logger.info(f"[{client.name}] Outbox row {row.id} filtered ({len(events)} events) — no platform enabled for these events.")
+                logger.debug(f"[{client.name}] Outbox row {row.id} filtered ({len(events)} events) — no platform enabled for these events.")
                 return
 
             row.status = "sent"
@@ -419,7 +419,7 @@ async def process_outbox_row(row_id: int) -> None:
                 )))
             await db.commit()
 
-            logger.info(f"[{client.name}] Outbox row {row.id} sent ({len(events)} events) via {primary_platform}.")
+            logger.debug(f"[{client.name}] Outbox row {row.id} sent ({len(events)} events) via {primary_platform}.")
 
         except Exception as exc:
             attempts = row.attempts + 1

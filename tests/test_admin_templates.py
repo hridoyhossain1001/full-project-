@@ -259,6 +259,20 @@ async def test_client_dashboard_render_with_email_session():
 
 
 @pytest.mark.anyio
+async def test_static_mounts_do_not_expose_client_portal_root():
+    mount_paths = {getattr(route, "path", None) for route in app.routes}
+    assert "/static" not in mount_paths
+    assert "/static/css" in mount_paths
+    assert "/static/client-portal/assets" in mount_paths
+
+    client = TestClient(app)
+    assert client.get("/static/client-portal/server.cjs").status_code == 404
+    assert client.get("/static/client-portal/server.cjs.map").status_code == 404
+    assert client.get("/static/client-portal/index.html").status_code == 404
+    assert client.get("/static/css/portal.css").status_code == 200
+
+
+@pytest.mark.anyio
 async def test_client_signup_form_creates_email_user():
     client = TestClient(app)
     response = client.post(
@@ -647,4 +661,3 @@ async def test_admin_views_delete_client_with_users_and_sessions():
 
         sess_check = (await session.execute(select(ClientSession).where(ClientSession.client_id == client_id))).scalars().all()
         assert len(sess_check) == 0
-

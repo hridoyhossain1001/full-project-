@@ -169,17 +169,17 @@ async def check_and_reserve_usage(
     if r is not None:
         try:
             pipe = r.pipeline()
+            ttl_map = {minute_key: 65, daily_key: 90000, monthly_key: 2678400}
             for window_key, event_count in reservations:
-                pipe.incrby(f"usage:{client.id}:{window_key}", event_count)
+                rkey = f"usage:{client.id}:{window_key}"
+                pipe.incrby(rkey, event_count)
+                pipe.expire(rkey, ttl_map[window_key], nx=True)
             results = await pipe.execute()
 
-            pipe = r.pipeline()
-            ttl_map = {minute_key: 65, daily_key: 90000, monthly_key: 2678400}
             counts = {}
-            for (window_key, _), new_count in zip(reservations, results):
+            counter_results = results[0::2]
+            for (window_key, _), new_count in zip(reservations, counter_results):
                 counts[window_key] = new_count
-                pipe.expire(f"usage:{client.id}:{window_key}", ttl_map[window_key], nx=True)
-            await pipe.execute()
 
             daily_quota = getattr(client, "daily_quota", None)
             monthly_limit = getattr(client, "monthly_limit", None)
@@ -271,12 +271,33 @@ async def rollback_usage_reservation(
     if not reserved_keys:
         return
 
+    usage_source = reserved_keys.get("_usage_source")
+    counter_keys = {k: v for k, v in reserved_keys.items() if not k.startswith("_")}
+
+    if not counter_keys:
+        return
+
+    if usage_source == "redis":
+        # Counters were reserved in Redis — rollback via DECRBY
+        r = _get_redis()
+        if r is not None:
+            try:
+                pipe = r.pipeline()
+                for window_key, event_count in counter_keys.items():
+                    pipe.decrby(f"usage:{client.id}:{window_key}", event_count)
+                await pipe.execute()
+                logger.info(f"[{client.name}] Usage reservation rolled back in Redis: {len(counter_keys)} windows")
+                return
+            except Exception as exc:
+                logger.warning(f"[{client.name}] Redis usage rollback failed, falling back to DB: {exc}")
+        # Redis unavailable — fall through to DB rollback as best-effort
+
     # We do NOT commit inside the helper, we just apply modifications.
     # The caller manages the commit/rollback transaction boundary.
-    for window_key, event_count in reserved_keys.items():
+    for window_key, event_count in counter_keys.items():
         await _atomic_rollback(db, client.id, window_key, event_count)
     await db.flush()
-    logger.info(f"[{client.name}] Usage reservation rolled back in session: {len(reserved_keys)} windows")
+    logger.info(f"[{client.name}] Usage reservation rolled back in session: {len(counter_keys)} windows")
 
 
 # ─── Legacy Functions (backward compatibility) ──────────────────────────────

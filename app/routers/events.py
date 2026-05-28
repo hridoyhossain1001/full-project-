@@ -17,6 +17,7 @@ from app.schemas.event import EventsPayload, EventsResponse, UserData, _clean_an
 from app.services.geoip_service import get_location_data
 from app.services.event_quality import boost_event_quality
 from app.services.event_worker import enqueue_events
+from app.services.fast_ingest_service import reserve_usage_and_enqueue_stream
 from app.services.usage_service import check_and_reserve_usage
 from app.models.pending_event import PendingEvent
 
@@ -26,6 +27,7 @@ router = APIRouter()
 
 MAX_EVENTS_PER_REQUEST = int(os.getenv("MAX_EVENTS_PER_REQUEST", "500"))
 CAPI_SIGNATURE_WINDOW_SECONDS = int(os.getenv("CAPI_SIGNATURE_WINDOW_SECONDS", "300"))
+GEOIP_ENRICH_IN_REQUEST = os.getenv("GEOIP_ENRICH_IN_REQUEST", "true").lower() in ("true", "1", "yes")
 FRAUD_INTERNAL_CUSTOM_KEYS = {
     "raw_first_name",
     "billing_first_name_raw",
@@ -73,6 +75,7 @@ def _verify_capi_signature(
 
 def _strip_internal_custom_data(event_dict: dict) -> dict:
     """Remove fraud-only fields before storing or queueing ad-platform payloads."""
+    event_dict.pop("raw_order_data", None)
     custom_data = event_dict.get("custom_data")
     if isinstance(custom_data, dict):
         for key in FRAUD_INTERNAL_CUSTOM_KEYS:
@@ -154,7 +157,6 @@ async def receive_events(
             status_code=413,
             detail=f"Too many events in one request. Max {MAX_EVENTS_PER_REQUEST}.",
         )
-
     # ─── Domain Whitelisting (API Key চুরি প্রতিরোধ) ─────────────────
     # Client-এর domain সেট করা থাকলে, শুধু সেই ডোমেইন থেকে রিকোয়েস্ট নেবে
     # urlparse দিয়ে hostname extract করে exact match বা real subdomain চেক
@@ -211,7 +213,7 @@ async def receive_events(
                 detail="Unauthorized domain. এই API Key আপনার ডোমেইনে রেজিস্টার্ড নয়।",
             )
 
-    # ─── Real IP Detection (Heroku/Cloudflare X-Forwarded-For হেডার থেকে) ──
+    # ─── Real IP Detection (Cloudflare/Nginx X-Forwarded-For হেডার থেকে) ──
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         client_ip = forwarded.split(",")[0].strip()
@@ -232,7 +234,7 @@ async def receive_events(
             event.user_data.client_user_agent = request.headers.get("user-agent")
 
         # ─── GeoIP Enrichment ──────────────────────────────────────────
-        if event.user_data.client_ip_address:
+        if GEOIP_ENRICH_IN_REQUEST and event.user_data.client_ip_address:
             loc_data = get_location_data(event.user_data.client_ip_address)
             if loc_data:
                 if loc_data.get("ct") and not event.user_data.ct:
@@ -274,8 +276,6 @@ async def receive_events(
                 queue_events.append(event)
 
         reserved_keys = {}
-        if queue_events:
-            reserved_keys = await check_and_reserve_usage(db, client, len(queue_events))
 
         # Purchase events → pending_events table; confirm flow sends these later.
         for event in deferred_events:
@@ -297,6 +297,7 @@ async def receive_events(
                 fraud_score_val = None
                 fraud_details_val = None
 
+            raw_order_data = event.raw_order_data
             event_dict = _strip_internal_custom_data(event.model_dump(exclude_none=True))
 
             try:
@@ -305,6 +306,7 @@ async def receive_events(
                         client_id=client.id,
                         order_id=order_id,
                         event_data=event_dict,
+                        raw_order_data=raw_order_data,
                         status="pending",
                         fraud_score=fraud_score_val,
                         fraud_details=fraud_details_val,
@@ -330,13 +332,22 @@ async def receive_events(
                     if key in {"_ga", "_fbp", "_fbc", "_ttp", "_ttclid"}
                 },
             }
-            await enqueue_events(
-                db,
-                client_id=client.id,
-                events_data=events_as_dicts,
-                request_context=request_context,
-                usage_reserved=reserved_keys,
-            )
+            fast_enqueued = False
+            if not deferred_events:
+                fast_enqueued, reserved_keys = await reserve_usage_and_enqueue_stream(
+                    client,
+                    events_data=events_as_dicts,
+                    request_context=request_context,
+                )
+            if not fast_enqueued:
+                reserved_keys = await check_and_reserve_usage(db, client, len(queue_events))
+                await enqueue_events(
+                    db,
+                    client_id=client.id,
+                    events_data=events_as_dicts,
+                    request_context=request_context,
+                    usage_reserved=reserved_keys,
+                )
             queued_count = len(queue_events)
 
         await db.commit()

@@ -1,8 +1,10 @@
 import os
 import logging
 import httpx
+import ipaddress
 import maxminddb
 import threading
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +13,16 @@ DB_PATH = "GeoLite2-City.mmdb"
 
 _reader = None
 _reader_lock = threading.Lock()
+
+
+def _global_ip_or_none(ip_address: str):
+    try:
+        ip = ipaddress.ip_address(str(ip_address).strip())
+    except ValueError:
+        return None
+    if not ip.is_global:
+        return None
+    return str(ip)
 
 async def download_geoip_db_if_missing():
     """Download the GeoLite2 City database if it doesn't exist."""
@@ -39,25 +51,19 @@ async def download_geoip_db_if_missing():
     except Exception as e:
         logger.error(f"Failed to load GeoIP database: {e}")
 
-def get_location_data(ip_address: str) -> dict:
-    """
-    Get city, state, country, and zip code from IP address.
-    Returns a dict with 'ct', 'st', 'country', 'zp' keys.
-    """
-    if not ip_address:
-        return {}
-
+@lru_cache(maxsize=int(os.getenv("GEOIP_CACHE_SIZE", "10000")))
+def _lookup_location_data(ip_address: str) -> tuple[tuple[str, str], ...]:
     with _reader_lock:
         if not _reader:
-            return {}
+            return ()
         try:
             data = _reader.get(ip_address)
         except Exception as e:
             logger.warning(f"GeoIP lookup failed for IP {ip_address}: {e}")
-            return {}
+            return ()
 
     if not data:
-        return {}
+        return ()
 
     loc = {}
 
@@ -81,7 +87,22 @@ def get_location_data(ip_address: str) -> dict:
     if 'postal' in data and 'code' in data['postal']:
         loc['zp'] = data['postal']['code']
 
-    return loc
+    return tuple(loc.items())
+
+
+def get_location_data(ip_address: str) -> dict:
+    """
+    Get city, state, country, and zip code from IP address.
+    Returns a dict with 'ct', 'st', 'country', 'zp' keys.
+    """
+    if not ip_address:
+        return {}
+
+    global_ip = _global_ip_or_none(ip_address)
+    if not global_ip:
+        return {}
+
+    return dict(_lookup_location_data(global_ip))
 
 def close_geoip_db():
     global _reader
@@ -92,3 +113,4 @@ def close_geoip_db():
             except Exception:
                 pass
             _reader = None
+    _lookup_location_data.cache_clear()

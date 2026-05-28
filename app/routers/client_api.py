@@ -1,7 +1,6 @@
 import logging
 import secrets
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,29 +40,29 @@ async def get_current_portal_client(request: Request, db: AsyncSession = Depends
 # ─── Schemas ─────────────────────────────────────────────────────────────────
 class ProfileUpdateRequest(BaseModel):
     name: str
-    email: Optional[str] = None
-    notificationEmail: Optional[str] = None
+    email: str | None = None
+    notificationEmail: str | None = None
 
 class CredentialsUpdateRequest(BaseModel):
     platform: str
-    enabled: Optional[bool] = None
-    pixelIdOrMeasurementId: Optional[str] = None
-    accessToken: Optional[str] = None
-    testEventCode: Optional[str] = None
+    enabled: bool | None = None
+    pixelIdOrMeasurementId: str | None = None
+    accessToken: str | None = None
+    testEventCode: str | None = None
 
 class RulesUpdateRequest(BaseModel):
-    rules: List[dict]
+    rules: list[dict]
 
 class CampaignTestRequest(BaseModel):
     platform: str
     eventName: str
-    value: Optional[str] = None
-    currency: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    ip: Optional[str] = None
-    userAgent: Optional[str] = None
-    customParams: Optional[dict] = None
+    value: str | None = None
+    currency: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    ip: str | None = None
+    userAgent: str | None = None
+    customParams: dict | None = None
 
 class PasswordUpdateRequest(BaseModel):
     currentPassword: str
@@ -85,7 +84,7 @@ ALLOWED_RULE_EVENTS = {
 }
 
 
-def _validate_rules(rules: List[dict]) -> List[dict]:
+def _validate_rules(rules: list[dict]) -> list[dict]:
     if len(rules) > 100:
         raise HTTPException(status_code=400, detail="Too many routing rules.")
     cleaned = []
@@ -343,8 +342,8 @@ async def update_credentials(
             client.enable_tiktok = payload.enabled
         if val is not None:
             clean_val = val.strip()
-            if clean_val and not clean_val.isdigit():
-                raise HTTPException(status_code=400, detail="TikTok Pixel ID must be numeric.")
+            if clean_val and not clean_val.isalnum():
+                raise HTTPException(status_code=400, detail="TikTok Pixel ID must be alphanumeric.")
             client.tiktok_pixel_id = clean_val or None
         if token and not token.startswith("tt_ac*****") and token.strip():
             client.tiktok_access_token = encrypt_token(token.strip())
@@ -433,8 +432,8 @@ async def get_events(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    status: Optional[str] = None,
-    platform: Optional[str] = None
+    status: str | None = None,
+    platform: str | None = None
 ):
     query = select(EventLog).where(EventLog.client_id == client.id).order_by(desc(EventLog.created_at))
     count_query = select(func.count(EventLog.id)).where(EventLog.client_id == client.id)
@@ -644,7 +643,7 @@ async def get_outbox_rows(
     client: Client = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(25, ge=1, le=100),
-    status: Optional[str] = Query(None),
+    status: str | None = Query(None),
 ):
     statuses = [s.strip().lower() for s in status.split(",")] if status else ["dead", "queued", "processing"]
     allowed_statuses = {"queued", "processing", "dead", "sent"}
@@ -923,7 +922,7 @@ class DeferredConfirmRequest(BaseModel):
     order_id: str
 
 class DeferredBulkConfirmRequest(BaseModel):
-    order_ids: List[str]
+    order_ids: list[str]
 
 class DeferredSettingsRequest(BaseModel):
     deferredEnabled: bool
@@ -1009,6 +1008,7 @@ async def get_deferred_purchases(
     for pe in pending_events:
         ed = pe.event_data or {}
         custom_data = ed.get("custom_data", {}) or {}
+        raw_order_data = pe.raw_order_data or {}
         created = pe.created_at.replace(tzinfo=timezone.utc) if pe.created_at.tzinfo is None else pe.created_at
         age_sec = (now_utc - created).total_seconds()
         age_h = round(age_sec / 3600, 1)
@@ -1027,6 +1027,9 @@ async def get_deferred_purchases(
             "orderId": pe.order_id,
             "amount": custom_data.get("value", 0),
             "customer": customer_str,
+            "recipientName": raw_order_data.get("recipient_name"),
+            "recipientPhone": raw_order_data.get("recipient_phone"),
+            "recipientAddress": raw_order_data.get("recipient_address"),
             "fraudScore": pe.fraud_score or 0,
             "fraudDetails": pe.fraud_details or {},
             "ageHours": age_h,
@@ -1081,6 +1084,8 @@ async def api_confirm_deferred(
     try:
         res = await confirm_event(ConfirmRequest(order_id=payload.order_id), client=client, db=db)
         return {"success": True, "message": res.message}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -1094,6 +1099,8 @@ async def api_confirm_deferred_bulk(
     try:
         res = await bulk_confirm_events(BulkConfirmRequest(order_ids=payload.order_ids), client=client, db=db)
         return {"success": True, "confirmed": res.confirmed, "failed": res.failed, "details": res.details}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

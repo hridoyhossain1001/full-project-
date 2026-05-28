@@ -73,7 +73,7 @@ async def _send_tiktok_secondary(client, events: list[EventData], event_names: s
             return
 
         if tiktok_result.get("sent_count") == 0:
-            logger.info(
+            logger.debug(
                 f"[{client.name}] TikTok secondary skipped unsupported event(s): {event_names}"
             )
             return
@@ -214,7 +214,7 @@ async def deliver_events_to_platforms(
     webhook_enabled = bool(client.webhook_url)
 
     if not any([facebook_enabled, tiktok_enabled, ga4_enabled, webhook_enabled]):
-        logger.info(f"[{client.name}] All events in batch filtered by rules or no platforms enabled.")
+        logger.debug(f"[{client.name}] All events in batch filtered by rules or no platforms enabled.")
         return {
             "primary_platform": "None",
             "result": {"ok": True, "message": "Filtered by custom event routing rules"},

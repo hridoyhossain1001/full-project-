@@ -1,13 +1,14 @@
 import logging
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import HTMLResponse, ORJSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from pythonjsonlogger import jsonlogger
 
 from app.database import engine, Base
 from app.routers.events import router as events_router
@@ -28,6 +29,8 @@ if not ADMIN_API_KEY:
     raise RuntimeError("ADMIN_API_KEY environment variable is required.")
 
 ENABLE_DOCS = os.getenv("ENABLE_DOCS", "").lower() in ("true", "1", "yes")
+STATUS_CACHE_SECONDS = float(os.getenv("STATUS_CACHE_SECONDS", "5"))
+_status_cache: tuple[float, dict] | None = None
 
 
 def _csv_env(name: str, default: str) -> list[str]:
@@ -37,14 +40,19 @@ def _csv_env(name: str, default: str) -> list[str]:
 
 ALLOWED_HOSTS = _csv_env(
     "ALLOWED_HOSTS",
-    "localhost,127.0.0.1,testserver,*.herokuapp.com,buykori.app,www.buykori.app,client.buykori.app,admin.buykori.app,api.buykori.app,track.buykori.app",
+    "localhost,127.0.0.1,testserver,buykori.app,www.buykori.app,client.buykori.app,admin.buykori.app,api.buykori.app,track.buykori.app",
 )
 
-# ─── Logging Setup ───────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+# ─── Logging Setup (Structured JSON — systemd/Supervisor/Datadog-friendly) ────
+_log_handler = logging.StreamHandler()
+_log_handler.setFormatter(
+    jsonlogger.JsonFormatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s",
+        rename_fields={"asctime": "timestamp", "levelname": "level"},
+    )
 )
+logging.root.setLevel(logging.INFO)
+logging.root.addHandler(_log_handler)
 logger = logging.getLogger(__name__)
 
 
@@ -56,9 +64,8 @@ async def lifespan(app: FastAPI):
     # ─── Database Schema ──────────────────────────────────────────────────
     # Production-এ Alembic migration ব্যবহার করুন। create_all শুধু explicit
     # dev/initial setup-এর জন্য: ENABLE_CREATE_ALL=true.
-    skip_create_all = os.getenv("SKIP_CREATE_ALL", "").lower() in ("true", "1", "yes")
     enable_create_all = os.getenv("ENABLE_CREATE_ALL", "").lower() in ("true", "1", "yes")
-    if enable_create_all and not skip_create_all:
+    if enable_create_all:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("✅ ডাটাবেস টেবিল তৈরি/যাচাই সফল।")
@@ -84,9 +91,8 @@ async def lifespan(app: FastAPI):
         task.add_done_callback(_task_done_callback)
         return task
 
-    # 🔄 Retry Service — শুধুমাত্র ENABLE_RETRY_IN_WEB=true হলে এই process-এ চলবে
-    # Worker dyno না থাকলে Procfile-এ: web: ENABLE_RETRY_IN_WEB=true uvicorn ... --workers 1
-    # অথবা Heroku config var-এ সেট করুন। একাধিক worker থাকলে retry duplicate হবে!
+    # 🔄 Outbox Worker — শুধুমাত্র ENABLE_OUTBOX_IN_WEB=true হলে এই process-এ চলবে।
+    # Supervisor-এ আলাদা worker process থাকলে এটি off রাখুন (duplicate এড়াতে)।
     if os.getenv("ENABLE_OUTBOX_IN_WEB", "").lower() in ("true", "1", "yes"):
         from app.services.event_worker import process_event_outbox_forever
         _launch(process_event_outbox_forever(), name="outbox-worker")
@@ -154,36 +160,45 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+app.mount("/static/css", StaticFiles(directory="app/static/css"), name="static-css")
+app.mount(
+    "/static/client-portal/assets",
+    StaticFiles(directory="app/static/client-portal/assets"),
+    name="client-portal-assets",
+)
 
 app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=ALLOWED_HOSTS,
 )
 
-# ─── Redirect Middleware (Heroku -> Custom Domain) ───────────────────────────
-class HerokuRedirectMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        host = request.url.hostname or ""
-        if host in {"buykori.app", "www.buykori.app"} and request.url.path.startswith("/client"):
-            return RedirectResponse(url="https://client.buykori.app", status_code=308)
-        if host.endswith(".herokuapp.com"):
-            target_domain = os.getenv("PRIMARY_DOMAIN", "api.buykori.app")
-            url = request.url.replace(hostname=target_domain)
-            # Use 308 (Permanent Redirect) instead of 301 to preserve HTTP method (POST)
-            return RedirectResponse(url=str(url), status_code=308)
-        return await call_next(request)
+# ─── Domain Redirect Middleware ───────────────────────────────────────────────
+# buykori.app / www.buykori.app এ /client রিকোয়েস্ট হলে client.buykori.app-এ redirect করো
+class DomainRedirectMiddleware:
+    def __init__(self, app):
+        self.app = app
 
-app.add_middleware(HerokuRedirectMiddleware)
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("path", "").startswith("/client"):
+            headers = dict(scope.get("headers") or [])
+            host = headers.get(b"host", b"").decode("latin1").split(":", 1)[0].lower()
+            if host in {"buykori.app", "www.buykori.app"}:
+                response = RedirectResponse(url="https://client.buykori.app", status_code=308)
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
-# ─── CORS — Multi-Tenant Tracker: allow_origins=["*"] ইচ্ছাকৃত ─────────────
+app.add_middleware(DomainRedirectMiddleware)
+
+# ─── CORS — Multi-Tenant Tracker ────────────────────────────────────────────
 # ব্রাউজার ট্র্যাকার (t.js) যেকোনো ক্লায়েন্ট ওয়েবসাইট থেকে cross-origin request পাঠায়।
-# Deploy-time-এ সব ক্লায়েন্ট ডোমেইন জানা সম্ভব নয়, তাই CORS open রাখা হয়েছে।
+# Deploy-time-এ সব ক্লায়েন্ট ডোমেইন জানা সম্ভব নয়, তাই CORS regex open রাখা হয়েছে।
+# 'null' ও 'file://*' সরানো হয়েছে — CSRF রিস্ক কমাতে।
 # প্রকৃত নিরাপত্তা → per-client domain whitelisting (events.py ও tracker.py-তে enforce হয়)।
 # Client Portal same-origin cookie ব্যবহার করে; public tracker CORS-এ credentials লাগে না।
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"null|file://.*|https://.*|http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?",
+    allow_origin_regex=r"https://.*|http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
     allow_headers=[
@@ -205,7 +220,10 @@ app.include_router(client_portal_router, tags=["Client Portal"])
 app.include_router(tracker_router, tags=["Tracker"])  # /t.js, /c — root level, no prefix
 app.include_router(deferred_events_router, prefix="/api/v1", tags=["Deferred Events"])
 app.include_router(analytics_router, prefix="/api/v1", tags=["Analytics"])
-app.include_router(debug_router, prefix="/api/v1", tags=["Debug & Testing"])
+# Debug endpoints শুধু ENABLE_DEBUG=true হলে expose হবে — প্রোডাকশনে false রাখুন
+if os.getenv("ENABLE_DEBUG", "").lower() in ("true", "1", "yes"):
+    app.include_router(debug_router, prefix="/api/v1", tags=["Debug & Testing"])
+    logger.warning("⚠️  Debug endpoints সক্রিয় — প্রোডাকশনে ENABLE_DEBUG=false রাখুন!")
 app.include_router(client_auth_router, prefix="/api/v1", tags=["Client Auth"])
 
 from app.routers.client_api import router as client_api_router
@@ -240,9 +258,43 @@ async def marketing_home():
 
 @app.get("/status", tags=["Health"])
 async def health_check():
-    return {
-        "status": "running",
+    """Real health check — DB ও Redis connectivity যাচাই করে।"""
+    from sqlalchemy import text
+    from app.services.redis_pool import get_redis
+    global _status_cache
+
+    now = time.monotonic()
+    if _status_cache and now - _status_cache[0] < STATUS_CACHE_SECONDS:
+        return _status_cache[1]
+
+    db_ok = False
+    redis_ok = False
+
+    # DB check
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception as e:
+        logger.error(f"Health check — DB error: {e}")
+
+    # Redis check
+    try:
+        redis = await get_redis()
+        if redis:
+            await redis.ping()
+            redis_ok = True
+    except Exception as e:
+        logger.error(f"Health check — Redis error: {e}")
+
+    overall = "ok" if (db_ok and redis_ok) else "degraded"
+    payload = {
+        "status": overall,
         "service": "Buykori AdSync",
         "version": "1.1.0",
-        "message": "🔥 Buykori AdSync চলছে!",
+        "db": db_ok,
+        "redis": redis_ok,
+        "message": "🔥 Buykori AdSync চলছে!" if overall == "ok" else "⚠️ সার্ভিস degraded!",
     }
+    _status_cache = (now, payload)
+    return payload

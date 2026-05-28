@@ -29,3 +29,7 @@ scratch/
 marketing-site/
 GeoLite2-City.mmdb
 *.mmdb.part
+
+# Server-side dev bundle (not needed in deployed static)
+app/static/client-portal/server.cjs
+app/static/client-portal/server.cjs.map

@@ -77,7 +77,7 @@ async def send_to_facebook(client, events: List[EventData]) -> dict:
         response = await http_client.post(url, json=payload)
         response.raise_for_status()
         result = response.json()
-        logger.info(
+        logger.debug(
             f"[{client.name}] {len(events)} ইভেন্ট পাঠানো সফল। "
             f"FB Response: {result}"
         )
