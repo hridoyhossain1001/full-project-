@@ -3,7 +3,6 @@ import logging
 import httpx
 import ipaddress
 import maxminddb
-import threading
 from functools import lru_cache
 
 logger = logging.getLogger(__name__)
@@ -12,7 +11,6 @@ DB_URL = "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb
 DB_PATH = "GeoLite2-City.mmdb"
 
 _reader = None
-_reader_lock = threading.Lock()
 
 
 def _global_ip_or_none(ip_address: str):
@@ -46,6 +44,12 @@ async def download_geoip_db_if_missing():
 
     # Initialize reader
     try:
+        if _reader:
+            try:
+                _reader.close()
+            except Exception:
+                pass
+            _reader = None
         _reader = maxminddb.open_database(DB_PATH)
         logger.info("GeoIP database loaded successfully.")
     except Exception as e:
@@ -53,14 +57,13 @@ async def download_geoip_db_if_missing():
 
 @lru_cache(maxsize=int(os.getenv("GEOIP_CACHE_SIZE", "10000")))
 def _lookup_location_data(ip_address: str) -> tuple[tuple[str, str], ...]:
-    with _reader_lock:
-        if not _reader:
-            return ()
-        try:
-            data = _reader.get(ip_address)
-        except Exception as e:
-            logger.warning(f"GeoIP lookup failed for IP {ip_address}: {e}")
-            return ()
+    if not _reader:
+        return ()
+    try:
+        data = _reader.get(ip_address)
+    except Exception as e:
+        logger.warning(f"GeoIP lookup failed for IP {ip_address}: {e}")
+        return ()
 
     if not data:
         return ()
@@ -106,11 +109,10 @@ def get_location_data(ip_address: str) -> dict:
 
 def close_geoip_db():
     global _reader
-    with _reader_lock:
-        if _reader:
-            try:
-                _reader.close()
-            except Exception:
-                pass
-            _reader = None
+    if _reader:
+        try:
+            _reader.close()
+        except Exception:
+            pass
+        _reader = None
     _lookup_location_data.cache_clear()

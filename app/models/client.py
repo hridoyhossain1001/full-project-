@@ -17,10 +17,10 @@ class Client(Base):
     pixel_id = Column(String, nullable=False)                      # Facebook Pixel ID
     access_token = Column(String, nullable=False)                  # CAPI Access Token (encrypted)
     test_event_code = Column(String, nullable=True)               # FB Test Event Code (optional)
-    is_active = Column(Boolean, default=True)                      # ক্লায়েন্ট অ্যাক্টিভ কিনা
+    is_active = Column(Boolean, default=True, nullable=False)      # ক্লায়েন্ট অ্যাক্টিভ কিনা
     domain = Column(String, nullable=True)                         # ক্লায়েন্টের ওয়েবসাইট ডোমেইন
-    rate_limit = Column(Integer, default=5000)                     # প্রতি মিনিটে সর্বোচ্চ রিকোয়েস্ট
-    daily_quota = Column(Integer, default=100000)                  # প্রতিদিন সর্বোচ্চ ইভেন্ট
+    rate_limit = Column(Integer, default=5000, nullable=False)     # প্রতি মিনিটে সর্বোচ্চ রিকোয়েস্ট
+    daily_quota = Column(Integer, default=100000, nullable=False)  # প্রতিদিন সর্বোচ্চ ইভেন্ট
     enable_facebook = Column(Boolean, default=True, nullable=False)
     enable_tiktok = Column(Boolean, default=True, nullable=False)
     enable_ga4 = Column(Boolean, default=True, nullable=False)
@@ -32,13 +32,15 @@ class Client(Base):
     ga4_measurement_id = Column(String, nullable=True)            # GA4 Measurement ID (e.g. G-XXXXX)
     ga4_api_secret = Column(String, nullable=True)                # GA4 API Secret (encrypted)
     # ─── Deferred Purchase ──────────────────────────────────────────────
-    deferred_purchase = Column(Boolean, default=False)             # ON হলে Purchase event হোল্ড হবে
+    deferred_purchase = Column(Boolean, default=False, nullable=False) # ON হলে Purchase event হোল্ড হবে
     auto_confirm_days = Column(Integer, default=0, nullable=False)  # ০ = অফ, অন্যথা অর্ডারের বয়স N দিন হলে অটো-কনফার্ম
     auto_confirm_status = Column(String, default="completed")       # কনফার্ম অর্ডারের স্ট্যাটাস
     # ─── Webhook (Outbound) ────────────────────────────────────────────
     webhook_url = Column(String, nullable=True)                    # Custom Webhook URL (outbound)
+    shopify_shared_secret = Column(String, nullable=True)          # Shopify Webhook Shared Secret
+
     # ─── Monthly Usage Limit (Rate Limiting Per-Client) ───────────────
-    monthly_limit = Column(Integer, default=50000)                  # মাসিক সর্বোচ্চ ইভেন্ট (0 = unlimited)
+    monthly_limit = Column(Integer, default=50000, nullable=False)  # মাসিক সর্বোচ্চ ইভেন্ট (0 = unlimited)
     event_rules = Column(JSON, nullable=True)                      # Custom routing rules for events (JSON)
     resolved_suggestions = Column(JSON, nullable=True)
     dismissed_suggestions = Column(JSON, nullable=True)

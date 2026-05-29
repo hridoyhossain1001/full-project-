@@ -46,6 +46,30 @@ async def _reserve_via_redis(client_id: int, candidate_ids: list[str]) -> set[st
         return None
 
 
+async def rollback_redis_dedup(
+    client_id: int,
+    candidate_ids: list[str] | set[str],
+) -> None:
+    """
+    Rollback/delete reserved dedup keys from Redis on database write or commit failure.
+    """
+    if not candidate_ids:
+        return
+
+    r = _get_redis()
+    if r is None:
+        return
+
+    try:
+        pipe = r.pipeline()
+        for event_id in candidate_ids:
+            pipe.delete(f"dedup:{client_id}:{event_id}")
+        await pipe.execute()
+    except Exception as exc:
+        logger.warning(f"Redis dedup rollback failed: {exc}")
+
+
+
 async def reserve_unique_event_ids(
     db: AsyncSession,
     client_id: int,

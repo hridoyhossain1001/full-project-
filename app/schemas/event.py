@@ -3,12 +3,16 @@ import re
 from pydantic import BaseModel, model_validator
 from typing import List, Dict, Any, Optional
 
-def _clean_and_hash(val: str, field: str) -> str:
+def _clean_and_hash(val: Any, field: str) -> str:
     """Normalize and hash PII data according to Facebook CAPI rules."""
-    if not isinstance(val, str) or not val.strip():
+    if val is None:
+        return ""
+    if not isinstance(val, str):
+        val = str(val)
+    if not val.strip():
         return val
 
-    val = val.strip()
+    val = val.strip().lower()
 
     # Check if already SHA256 hashed
     if re.match(r'^[a-f0-9]{64}$', val):
@@ -31,7 +35,6 @@ def _clean_and_hash(val: str, field: str) -> str:
             # Non-BD numbers: strip leading zeros (original behavior)
             val = val.lstrip('0')
     else:
-        val = val.lower()
         if field in ('fn', 'ln', 'ct'):
             # Remove punctuation (keep letters and spaces)
             val = re.sub(r'[^\w\s]', '', val)
@@ -69,15 +72,15 @@ class UserData(BaseModel):
         for field in hashable_fields:
             if field in data and data[field] is not None:
                 val = data[field]
-                # If a single string is provided, wrap it in a list
-                if isinstance(val, str):
-                    val = [val]
+                # If a single string, int, or float is provided, wrap it in a list
+                if isinstance(val, (str, int, float)):
+                    val = [str(val)]
 
                 # Clean and hash each item in the list
                 if isinstance(val, list):
                     cleaned_list = []
                     for item in val:
-                        if isinstance(item, str):
+                        if isinstance(item, (str, int, float)):
                             cleaned_list.append(_clean_and_hash(item, field))
                         else:
                             cleaned_list.append(item)

@@ -2,7 +2,6 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import HTMLResponse, ORJSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,6 +30,7 @@ if not ADMIN_API_KEY:
 ENABLE_DOCS = os.getenv("ENABLE_DOCS", "").lower() in ("true", "1", "yes")
 STATUS_CACHE_SECONDS = float(os.getenv("STATUS_CACHE_SECONDS", "5"))
 _status_cache: tuple[float, dict] | None = None
+_site_html_cache: str | None = None  # marketing site HTML — startup-তে মেমোরিতে পড়ে রাখা হবে
 
 
 def _csv_env(name: str, default: str) -> list[str]:
@@ -72,6 +72,15 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("ℹ️  create_all স্কিপ — Alembic migration ব্যবহার করুন।")
 
+    # মার্কেটিং সাইট HTML startup-তে মেমোরিতে লোড — async event loop block এড়াতে
+    global _site_html_cache
+    _site_html_path = os.path.join(os.path.dirname(__file__), "templates", "site.html")
+    try:
+        with open(_site_html_path, "r", encoding="utf-8") as f:
+            _site_html_cache = f.read()
+        logger.info("✅ Marketing site HTML লোড সফল।")
+    except FileNotFoundError:
+        logger.warning("⚠️  site.html পাওয়া যায়নি — marketing home দেখা যাবে না।")
 
     # ─── Background Task Management ────────────────────────────────────
     # Store references so tasks aren't garbage collected and add error callbacks
@@ -190,27 +199,105 @@ class DomainRedirectMiddleware:
 
 app.add_middleware(DomainRedirectMiddleware)
 
-# ─── CORS — Multi-Tenant Tracker ────────────────────────────────────────────
-# ব্রাউজার ট্র্যাকার (t.js) যেকোনো ক্লায়েন্ট ওয়েবসাইট থেকে cross-origin request পাঠায়।
-# Deploy-time-এ সব ক্লায়েন্ট ডোমেইন জানা সম্ভব নয়, তাই CORS regex open রাখা হয়েছে।
-# 'null' ও 'file://*' সরানো হয়েছে — CSRF রিস্ক কমাতে।
-# প্রকৃত নিরাপত্তা → per-client domain whitelisting (events.py ও tracker.py-তে enforce হয়)।
-# Client Portal same-origin cookie ব্যবহার করে; public tracker CORS-এ credentials লাগে না।
-app.add_middleware(
-    CORSMiddleware,
-    allow_origin_regex=r"https://.*|http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?",
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-    allow_headers=[
-        "X-API-Key",
-        "X-Admin-API-Key",
-        "X-CAPI-Origin",
-        "X-CAPI-Timestamp",
-        "X-CAPI-Signature",
-        "Content-Type",
-        "Authorization",
-    ],
-)
+# ─── CORS ─────────────────────────────────────────────────────────────────────
+#
+# দুটো আলাদা CORS নীতি প্রয়োজন:
+#   1. Client Portal / Admin API  → শুধু নির্দিষ্ট buykori.app ডোমেইন, credentials সহ
+#   2. Public Tracker (t.js, /c)  → যেকোনো HTTPS ডোমেইন, কিন্তু credentials ছাড়া
+#
+# FastAPI-তে দুটো CORSMiddleware যোগ করা যায় না (পরেরটা আগেরটা override করে)।
+# তাই একটি মিডলওয়্যারে route-level logic দিয়ে split করা হয়েছে।
+
+PORTAL_ALLOWED_ORIGINS = {
+    "https://buykori.app",
+    "https://www.buykori.app",
+    "https://client.buykori.app",
+    "https://admin.buykori.app",
+    "https://api.buykori.app",
+    "https://track.buykori.app",
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
+}
+
+# Tracker endpoints — এগুলোতে credentials পাঠানো হয় না
+TRACKER_PATH_PREFIXES = ("/t.js", "/c", "/pixel")
+
+
+class SplitCORSMiddleware:
+    """
+    Tracker endpoints-এ open CORS (credentials=False),
+    Portal/Admin/API endpoints-এ strict CORS (credentials=True, allowlist only).
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers") or [])
+        origin = headers.get(b"origin", b"").decode("latin1")
+        path = scope.get("path", "")
+
+        if not origin:
+            await self.app(scope, receive, send)
+            return
+
+        is_tracker = any(path.startswith(p) for p in TRACKER_PATH_PREFIXES)
+
+        if is_tracker:
+            # Tracker: যেকোনো HTTPS অরিজিন allow, credentials নেই
+            if origin.startswith("https://") or origin.startswith("http://localhost") or origin.startswith("http://127."):
+                allow_origin = origin
+                allow_credentials = "false"
+            else:
+                await self.app(scope, receive, send)
+                return
+        else:
+            # Portal/API: শুধু whitelist করা ডোমেইন allow
+            if origin in PORTAL_ALLOWED_ORIGINS:
+                allow_origin = origin
+                allow_credentials = "true"
+            else:
+                await self.app(scope, receive, send)
+                return
+
+        # Handle preflight
+        method = headers.get(b":method", b"").decode("latin1") or scope.get("method", "")
+        if method.upper() == "OPTIONS":
+            from starlette.responses import Response
+            preflight = Response(
+                status_code=204,
+                headers={
+                    "Access-Control-Allow-Origin": allow_origin,
+                    "Access-Control-Allow-Credentials": allow_credentials,
+                    "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+                    "Access-Control-Allow-Headers": "X-API-Key, X-Admin-API-Key, X-CAPI-Origin, X-CAPI-Timestamp, X-CAPI-Signature, Content-Type, Authorization",
+                    "Access-Control-Max-Age": "600",
+                    "Vary": "Origin",
+                },
+            )
+            await preflight(scope, receive, send)
+            return
+
+        # Inject CORS headers into actual response
+        async def send_with_cors(message):
+            if message["type"] == "http.response.start":
+                response_headers = list(message.get("headers", []))
+                response_headers.append((b"access-control-allow-origin", allow_origin.encode()))
+                response_headers.append((b"access-control-allow-credentials", allow_credentials.encode()))
+                response_headers.append((b"vary", b"Origin"))
+                message = {**message, "headers": response_headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_cors)
+
+
+app.add_middleware(SplitCORSMiddleware)
 
 # ─── Routers ─────────────────────────────────────────────────────────────────
 app.include_router(events_router, prefix="/api/v1", tags=["Events"])
@@ -250,10 +337,15 @@ app.include_router(client_health_router, prefix="/api/v1", tags=["Client Health"
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def marketing_home():
-    import os
+    if _site_html_cache:
+        return HTMLResponse(_site_html_cache)
+    # Fallback: startup-তে লোড না হলে একবার পড়ে দিন
     site_path = os.path.join(os.path.dirname(__file__), "templates", "site.html")
-    with open(site_path, "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
+    try:
+        with open(site_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    except FileNotFoundError:
+        return HTMLResponse("<h1>Buykori AdSync</h1>", status_code=200)
 
 
 @app.get("/status", tags=["Health"])
@@ -280,7 +372,7 @@ async def health_check():
 
     # Redis check
     try:
-        redis = await get_redis()
+        redis = get_redis()
         if redis:
             await redis.ping()
             redis_ok = True

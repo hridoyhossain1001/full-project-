@@ -32,7 +32,10 @@ for i = 1, window_count do
     arg_index = arg_index + 4
 
     local count = redis.call("INCRBY", key, increment)
-    redis.call("EXPIRE", key, ttl, "NX")
+    local current_ttl = redis.call("TTL", key)
+    if current_ttl == -1 then
+        redis.call("EXPIRE", key, ttl)
+    end
     windows[i] = {key, increment, count, limit}
 end
 

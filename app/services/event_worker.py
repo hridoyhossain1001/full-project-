@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import socket
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, or_, select
@@ -67,7 +68,7 @@ def _event_order_id(event: EventData) -> str:
         return str(event.custom_data.order_id)
     if event.event_id:
         return event.event_id
-    return f"auto-{event.event_time}-{id(event)}"
+    return f"auto-{event.event_time}-{uuid.uuid4()}"
 
 
 def _enrich_event(event: EventData, context: dict) -> EventData:
@@ -191,26 +192,45 @@ async def bridge_redis_stream_once() -> int:
             )
             async with AsyncSessionLocal() as db:
                 queue_payload: list[dict] = []
+                purchase_events = []
+                purchase_order_ids = []
                 for raw_event in events_payload:
                     event = EventData(**raw_event)
                     if hold_purchase and event.event_name == "Purchase":
-                        try:
-                            async with db.begin_nested():
-                                db.add(
-                                    PendingEvent(
-                                        client_id=client_id,
-                                        order_id=_event_order_id(event),
-                                        event_data=raw_event,
-                                        status="pending",
-                                    )
-                                )
-                                await db.flush()
-                        except Exception:
-                            logger.warning(
-                                f"Duplicate pending purchase skipped while bridging stream event {message_id}"
-                            )
+                        order_id = _event_order_id(event)
+                        purchase_events.append((order_id, raw_event))
+                        purchase_order_ids.append(order_id)
                     else:
                         queue_payload.append(raw_event)
+
+                existing_order_ids = set()
+                if purchase_order_ids:
+                    result = await db.execute(
+                        select(PendingEvent.order_id)
+                        .where(
+                            and_(
+                                PendingEvent.client_id == client_id,
+                                PendingEvent.order_id.in_(purchase_order_ids)
+                            )
+                        )
+                    )
+                    existing_order_ids = set(result.scalars().all())
+
+                for order_id, raw_event in purchase_events:
+                    if order_id in existing_order_ids:
+                        logger.warning(
+                            f"Duplicate pending purchase skipped while bridging stream event {message_id}"
+                        )
+                    else:
+                        db.add(
+                            PendingEvent(
+                                client_id=client_id,
+                                order_id=order_id,
+                                event_data=raw_event,
+                                status="pending",
+                            )
+                        )
+                        existing_order_ids.add(order_id)
 
                 if queue_payload:
                     db.add(
@@ -358,16 +378,26 @@ async def process_outbox_row(row_id: int) -> None:
             return
 
         client = _snapshot(client_row)
-        events = []
+        event_payload = row.event_payload
         context = row.request_context or {}
-        event_names = "Unknown"
+        usage_reserved = row.usage_reserved
+        attempts = row.attempts
+        max_attempts = row.max_attempts
 
-        try:
-            events = [_enrich_event(EventData(**event), context) for event in row.event_payload]
-            event_names = _event_names(events)
-            delivery_res = await deliver_events_to_platforms(client, events, context)
-            primary_platform = delivery_res["primary_platform"]
-            result = delivery_res["result"]
+    events = []
+    event_names = "Unknown"
+
+    try:
+        events = [_enrich_event(EventData(**event), context) for event in event_payload]
+        event_names = _event_names(events)
+        delivery_res = await deliver_events_to_platforms(client, events, context)
+        primary_platform = delivery_res["primary_platform"]
+        result = delivery_res["result"]
+
+        async with AsyncSessionLocal() as db:
+            row = await db.get(EventOutbox, row_id)
+            if not row:
+                return
 
             # If all events were filtered by routing rules or no platforms were enabled,
             # log as "filtered" instead of "success" and rollback usage reservation
@@ -389,10 +419,10 @@ async def process_outbox_row(row_id: int) -> None:
                     )))
 
                 # Rollback usage since nothing was actually sent
-                if row.usage_reserved:
+                if usage_reserved:
                     try:
                         async with db.begin_nested():
-                            await rollback_usage_reservation(db, client, row.usage_reserved)
+                            await rollback_usage_reservation(db, client, usage_reserved)
                     except Exception as usage_err:
                         logger.warning(f"[{client.name}] Usage rollback failed for filtered events: {usage_err}")
 
@@ -407,7 +437,7 @@ async def process_outbox_row(row_id: int) -> None:
             row.last_error = None
 
             events_data = [event.model_dump(exclude_none=True) for event in events]
-            if USAGE_RESERVATION_MODE == "worker" and not row.usage_reserved:
+            if USAGE_RESERVATION_MODE == "worker" and not usage_reserved:
                 await increment_usage_counters_db(db, client, len(events))
             for event_data in events_data:
                 db.add(EventLog(**_event_log_kwargs(
@@ -421,14 +451,19 @@ async def process_outbox_row(row_id: int) -> None:
 
             logger.debug(f"[{client.name}] Outbox row {row.id} sent ({len(events)} events) via {primary_platform}.")
 
-        except Exception as exc:
-            attempts = row.attempts + 1
-            row.attempts = attempts
+    except Exception as exc:
+        async with AsyncSessionLocal() as db:
+            row = await db.get(EventOutbox, row_id)
+            if not row:
+                return
+
+            new_attempts = attempts + 1
+            row.attempts = new_attempts
             row.last_error = str(exc)[:500]
             row.locked_at = None
             row.locked_by = None
 
-            if attempts >= row.max_attempts:
+            if new_attempts >= max_attempts:
                 db.add(EventLog(
                     client_id=client.id,
                     event_name=event_names,
@@ -439,14 +474,14 @@ async def process_outbox_row(row_id: int) -> None:
                 ))
                 await _mark_dead(db, row, client, row.last_error or "Outbox send failed")
                 await db.commit()
-                logger.error(f"[{client.name}] Outbox row {row.id} dead after {attempts} attempts.")
+                logger.error(f"[{client.name}] Outbox row {row.id} dead after {new_attempts} attempts.")
                 return
 
             row.status = "queued"
-            row.next_attempt_at = _next_attempt_after(attempts)
+            row.next_attempt_at = _next_attempt_after(new_attempts)
             await db.commit()
             logger.warning(
-                f"[{client.name}] Outbox row {row.id} attempt {attempts} failed; "
+                f"[{client.name}] Outbox row {row.id} attempt {new_attempts} failed; "
                 f"next retry at {row.next_attempt_at}: {str(exc)[:120]}"
             )
 

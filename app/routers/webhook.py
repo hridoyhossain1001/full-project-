@@ -30,6 +30,7 @@ from app.services.event_worker import enqueue_events
 from app.services.usage_service import check_and_reserve_usage
 from app.dependencies import CachedClient, _snapshot
 from app.routers.deferred_events import _auto_book_courier_for_pending, _queue_confirmed_event
+from app.security import decrypt_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -42,6 +43,19 @@ def _verify_wc_signature(raw_body: bytes, signature: str, secret: str) -> bool:
     if not signature or not secret:
         return False
     digest = hmac.new(secret.encode(), raw_body, hashlib.sha256).digest()
+    expected = base64.b64encode(digest).decode()
+    return hmac.compare_digest(expected, signature)
+
+
+def _verify_shopify_signature(raw_body: bytes, signature: str, secret: str) -> bool:
+    """Verify Shopify X-Shopify-Hmac-Sha256 (base64 HMAC-SHA256)."""
+    if not signature or not secret:
+        return False
+    try:
+        decrypted_secret = decrypt_token(secret)
+    except Exception:
+        decrypted_secret = secret
+    digest = hmac.new(decrypted_secret.encode("utf-8"), raw_body, hashlib.sha256).digest()
     expected = base64.b64encode(digest).decode()
     return hmac.compare_digest(expected, signature)
 
@@ -103,8 +117,9 @@ async def woocommerce_webhook(
 
     logger.info(f"[{client.name}] 📬 WooCommerce webhook: order #{order_id}, status: {status}")
 
-    # ─── Only process completed/processing orders ─────────────────────
-    if status not in ("completed", "processing"):
+    # ─── Only process completed/processing/courier_booked orders ──────
+    status_clean = status.lower().replace("wc-", "")
+    if status_clean not in ("completed", "processing", "courier_booked", "courier-booked"):
         return {
             "status": "ignored",
             "message": f"Order #{order_id} status '{status}' — no action needed",
@@ -135,7 +150,7 @@ async def woocommerce_webhook(
                 and_(
                     PendingEvent.client_id == client.id,
                     PendingEvent.order_id.in_(possible_ids),
-                    PendingEvent.status == "confirmed",
+                    PendingEvent.status.in_(["confirmed", "courier_booked"]),
                 )
             )
         )
@@ -143,7 +158,7 @@ async def woocommerce_webhook(
             return {
                 "status": "success",
                 "order_id": str(order_id),
-                "message": "Purchase event was already confirmed.",
+                "message": "Purchase event was already confirmed or booked with courier.",
             }
         return {
             "status": "skipped",
@@ -178,7 +193,15 @@ async def woocommerce_webhook(
         await db.rollback()
         raise HTTPException(status_code=400, detail=booking["message"])
 
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"[{client.name}] WooCommerce webhook commit failed (order #{order_id}): {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database commit failed: {e}",
+        )
 
     logger.info(f"[{client.name}] Webhook confirmed order #{order_id}: {message}")
 
@@ -215,7 +238,13 @@ async def shopify_webhook(
 
     client = _snapshot(client_row)
     raw_body = await request.body()
-    
+
+    # ─── Shopify Signature Validation ───────────────────────────────
+    signature = request.headers.get("x-shopify-hmac-sha256", "")
+    if client.shopify_shared_secret:
+        if not signature or not _verify_shopify_signature(raw_body, signature, client.shopify_shared_secret):
+            raise HTTPException(status_code=401, detail="Invalid Shopify webhook signature")
+
     # ─── Parse Webhook Body ───────────────────────────────────────────
     try:
         body = json.loads(raw_body)
@@ -224,7 +253,7 @@ async def shopify_webhook(
 
     order_id = body.get("id")
     order_number = body.get("order_number") or body.get("name")
-    
+
     if not order_id:
         raise HTTPException(status_code=400, detail="Shopify Order ID not found in payload")
 
@@ -246,6 +275,24 @@ async def shopify_webhook(
         pending = result.scalar_one_or_none()
         if pending:
             break
+
+    if not pending:
+        # ─── Check if already confirmed or courier_booked ─────────────────
+        confirmed_check = await db.execute(
+            select(PendingEvent).where(
+                and_(
+                    PendingEvent.client_id == client.id,
+                    PendingEvent.order_id.in_(possible_ids),
+                    PendingEvent.status.in_(["confirmed", "courier_booked"]),
+                )
+            )
+        )
+        if confirmed_check.scalar_one_or_none():
+            return {
+                "status": "success",
+                "order_id": str(order_id),
+                "message": "Purchase event was already confirmed/processed.",
+            }
 
     if pending:
         # Confirm pending event
@@ -276,8 +323,16 @@ async def shopify_webhook(
         else:
             await db.rollback()
             raise HTTPException(status_code=400, detail=booking["message"])
-        
-        await db.commit()
+
+        try:
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"[{client.name}] Shopify webhook commit failed (order #{order_id}): {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Database commit failed: {e}",
+            )
         return {
             "status": "success",
             "order_id": str(order_id),
@@ -290,7 +345,7 @@ async def shopify_webhook(
     phone = body.get("phone") or body.get("customer", {}).get("phone") or ""
     first_name = body.get("customer", {}).get("first_name") or ""
     last_name = body.get("customer", {}).get("last_name") or ""
-    
+
     billing = body.get("billing_address", {})
     if not phone and billing.get("phone"):
         phone = billing.get("phone")
@@ -298,7 +353,7 @@ async def shopify_webhook(
         first_name = billing.get("first_name")
     if not last_name and billing.get("last_name"):
         last_name = billing.get("last_name")
-        
+
     city = billing.get("city") or ""
     state = billing.get("province") or ""
     country = billing.get("country_code") or billing.get("country") or ""
@@ -308,7 +363,7 @@ async def shopify_webhook(
     def _sha(v: str) -> list[str]:
         if not v:
             return []
-        v_clean = "".join(c for c in v if c.isalnum() or c in ("@", ".")).strip().lower()
+        v_clean = "".join(c for c in v if c.isalnum() or c in ("@", ".", "-", "_", "+")).strip().lower()
         if not v_clean:
             return []
         # Check if already hashed
@@ -328,14 +383,14 @@ async def shopify_webhook(
             digits = "88" + digits
         elif len(digits) == 10 and digits.startswith("1"):
             digits = "880" + digits
-        
+
         return [hashlib.sha256(digits.encode("utf-8")).hexdigest()]
 
     user_data = {
         "client_ip_address": body.get("client_ip") or body.get("browser_ip") or "8.8.8.8",
         "client_user_agent": body.get("user_agent") or request.headers.get("user-agent", ""),
     }
-    
+
     if email:
         user_data["em"] = _sha(email)
     if phone:
@@ -391,7 +446,7 @@ async def shopify_webhook(
     # Auto detect Cloudflare / Nginx headers
     forwarded = request.headers.get("x-forwarded-for")
     client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else None)
-    
+
     # Enrich
     boost_event_quality(
         EventData(**event_payload),
@@ -413,6 +468,18 @@ async def shopify_webhook(
             },
             usage_reserved=reserved_keys,
         )
+
+        # Save a confirmed PendingEvent to prevent duplicate queuing
+        new_pending = PendingEvent(
+            client_id=client.id,
+            order_id=f"shopify_purchase_{order_id}",
+            event_data=event_payload,
+            status="confirmed",
+            is_confirmed=True,
+            confirmed_at=datetime.now(timezone.utc)
+        )
+        db.add(new_pending)
+
         await db.commit()
     except Exception as e:
         await db.rollback()

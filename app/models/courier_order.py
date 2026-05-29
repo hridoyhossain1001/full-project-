@@ -1,9 +1,12 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.sql import func
 from app.database import Base
 
 class CourierOrder(Base):
     __tablename__ = "courier_orders"
+    __table_args__ = (
+        UniqueConstraint("client_id", "order_id", name="uq_courier_orders_client_order"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
@@ -11,9 +14,9 @@ class CourierOrder(Base):
     
     order_id = Column(String(255), nullable=False)                         # WooCommerce/Website order ID
     courier_provider = Column(String(50), nullable=False)                 # 'pathao' / 'steadfast'
-    courier_order_id = Column(String(255), nullable=True)                 # Courier-side order ID
-    courier_tracking_id = Column(String(255), nullable=True)              # Tracking code
-    courier_status = Column(String(100), default="pending", nullable=False) # pending/picked/in_transit/delivered/returned
+    courier_order_id = Column(String(255), nullable=True, index=True)                 # Courier-side order ID
+    courier_tracking_id = Column(String(255), nullable=True, index=True)              # Tracking code
+    courier_status = Column(String(100), default="pending", nullable=False, index=True) # pending/picked/in_transit/delivered/returned
     
     recipient_name = Column(String(255), nullable=True)
     recipient_phone = Column(String(50), nullable=True)

@@ -32,6 +32,40 @@ PLUGIN_ZIP_PATH = Path(
 PLUGIN_DOWNLOAD_URL = os.getenv("PLUGIN_DOWNLOAD_URL", "")
 
 
+# Cache for plugin zip SHA256 and size to prevent high Disk I/O and CPU overhead
+_PLUGIN_ZIP_CACHE = {
+    "sha256": None,
+    "size": None,
+    "mtime": None,
+}
+
+_PRECONFIGURED_ZIP_CACHE = {}
+
+
+def _get_cached_zip_info():
+    if not PLUGIN_ZIP_PATH.is_file():
+        return "", 0, False
+
+    try:
+        stat = PLUGIN_ZIP_PATH.stat()
+        mtime = stat.st_mtime
+    except Exception:
+        return "", 0, False
+
+    if _PLUGIN_ZIP_CACHE["mtime"] == mtime and _PLUGIN_ZIP_CACHE["sha256"] is not None:
+        return _PLUGIN_ZIP_CACHE["sha256"], _PLUGIN_ZIP_CACHE["size"], True
+
+    try:
+        package_bytes = PLUGIN_ZIP_PATH.read_bytes()
+        sha256 = hashlib.sha256(package_bytes).hexdigest()
+        _PLUGIN_ZIP_CACHE["sha256"] = sha256
+        _PLUGIN_ZIP_CACHE["size"] = len(package_bytes)
+        _PLUGIN_ZIP_CACHE["mtime"] = mtime
+        return sha256, _PLUGIN_ZIP_CACHE["size"], True
+    except Exception:
+        return "", 0, False
+
+
 @router.get(
     "/plugin/info",
     summary="Get plugin release status",
@@ -42,11 +76,7 @@ async def plugin_info(request: Request):
     download_url = PLUGIN_DOWNLOAD_URL or _plugin_download_url(request)
     package_sha256 = ""
     package_size = 0
-    package_available = PLUGIN_ZIP_PATH.is_file()
-    if package_available:
-        package_bytes = PLUGIN_ZIP_PATH.read_bytes()
-        package_sha256 = hashlib.sha256(package_bytes).hexdigest()
-        package_size = len(package_bytes)
+    package_sha256, package_size, package_available = _get_cached_zip_info()
 
     return JSONResponse(content={
         "version": PLUGIN_VERSION,
@@ -74,8 +104,7 @@ async def plugin_update_check(
     """Return current plugin version info for WordPress auto-updater."""
     download_url = PLUGIN_DOWNLOAD_URL or _plugin_download_url(request)
     package_sha256 = ""
-    if PLUGIN_ZIP_PATH.is_file():
-        package_sha256 = hashlib.sha256(PLUGIN_ZIP_PATH.read_bytes()).hexdigest()
+    package_sha256, _, _ = _get_cached_zip_info()
 
     signature = ""
     if x_api_key and package_sha256:
@@ -207,10 +236,14 @@ def _build_gateway_url(request: Request) -> str:
 
 def _generate_preconfigured_zip(api_key: str, gateway_url: str) -> io.BytesIO:
     """
-    ডাইনামিকালি প্রিকনফিগার্ড প্লাগইন জিপ তৈরি করে।
+    ডাইনামিকালি প্রিকনফিগার্ড জিপ তৈরি করে।
     ক্লায়েন্টের API Key এবং Gateway URL আগে থেকেই embed করে দেয়
     যাতে ইনস্টল করার পর কোনো ম্যানুয়াল কনফিগারেশন দরকার না হয়।
     """
+    cache_key = (api_key, gateway_url)
+    if cache_key in _PRECONFIGURED_ZIP_CACHE:
+        return io.BytesIO(_PRECONFIGURED_ZIP_CACHE[cache_key])
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for root, _dirs, files in os.walk(PLUGIN_SOURCE_DIR):
@@ -225,19 +258,17 @@ def _generate_preconfigured_zip(api_key: str, gateway_url: str) -> io.BytesIO:
                 # Patch buykori-adsync.php defaults with client's credentials
                 if fname == "buykori-adsync.php":
                     text = content.decode("utf-8")
-                    # Replace default api_key in activation defaults
+                    # Replace default api_key in activation defaults and other blocks
                     text = re.sub(
-                        r"('api_key'\s*=>\s*)'',",
-                        rf"\g<1>'{api_key}',",
+                        r"(['\"]api_key['\"]\s*=>\s*)(['\"]{2}|['\"].*?['\"])\s*,",
+                        lambda m: f"{m.group(1)}'{api_key}',",
                         text,
-                        count=1,
                     )
-                    # Replace default gateway_url in activation defaults
+                    # Replace default gateway_url in activation defaults and other blocks
                     text = re.sub(
-                        r"('gateway_url'\s*=>\s*)BUYKORIGW_DEFAULT_GATEWAY_URL,",
-                        rf"\g<1>'{gateway_url}',",
+                        r"(['\"]gateway_url['\"]\s*=>\s*)(BUYKORIGW_DEFAULT_GATEWAY_URL|['\"].*?['\"])\s*,",
+                        lambda m: f"{m.group(1)}'{gateway_url}',",
                         text,
-                        count=1,
                     )
                     content = text.encode("utf-8")
 
@@ -255,15 +286,16 @@ def _generate_preconfigured_zip(api_key: str, gateway_url: str) -> io.BytesIO:
 async def plugin_download(
     request: Request,
     api_key: Optional[str] = Query(None, alias="api_key"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     db: AsyncSession = Depends(get_db),
 ):
     """
     প্লাগইন ডাউনলোড এন্ডপয়েন্ট।
 
-    api_key query param দিলে ডাইনামিকালি প্রিকনফিগার্ড জিপ তৈরি করে সার্ভ করবে।
+    api_key query param বা X-API-Key header দিলে ডাইনামিকালি প্রিকনফিগার্ড জিপ তৈরি করে সার্ভ করবে।
     না দিলে স্ট্যান্ডার্ড জিপ ফাইলটি সার্ভ করবে (auto-updater compatibility)।
     """
-    resolved_api_key = api_key
+    resolved_api_key = api_key or x_api_key
 
     # If api_key query parameter is not present, check client session cookie
     if not resolved_api_key:
@@ -278,11 +310,16 @@ async def plugin_download(
     # ── Dynamic pre-configured download ─────────────────────────────────
     if resolved_api_key:
         result = await db.execute(
-            select(Client).where(Client.api_key == resolved_api_key, Client.is_active == True)
+            select(Client).where(Client.api_key == resolved_api_key)
         )
         client = result.scalar_one_or_none()
 
-        if client and PLUGIN_SOURCE_DIR.is_dir():
+        if not client:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        if not client.is_active:
+            raise HTTPException(status_code=403, detail="Inactive client account")
+
+        if PLUGIN_SOURCE_DIR.is_dir():
             gateway_url = _build_gateway_url(request)
             buf = _generate_preconfigured_zip(resolved_api_key, gateway_url)
             return StreamingResponse(

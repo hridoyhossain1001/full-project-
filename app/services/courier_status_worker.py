@@ -16,76 +16,96 @@ POLL_INTERVAL_SECONDS = 1800 # 30 minutes fallback check
 
 async def poll_active_courier_orders() -> None:
     logger.info("Starting periodic courier status sync loop...")
-    
+
+    # 1. Fetch active courier orders and client credentials quickly
     async with AsyncSessionLocal() as db:
-        # Find all orders that are not finalized (i.e. not delivered, returned, or cancelled)
         result = await db.execute(
-            select(CourierOrder).where(
+            select(CourierOrder, Client)
+            .join(Client, CourierOrder.client_id == Client.id)
+            .where(
                 CourierOrder.courier_status.in_(["pending", "picked", "in_transit"])
             )
         )
-        active_orders = result.scalars().all()
-        
-        if not active_orders:
+        active_rows = result.all()
+
+        if not active_rows:
             logger.info("No active courier orders to sync.")
             return
-            
-        logger.info(f"Found {len(active_orders)} active courier orders to sync.")
-        
-        for order in active_orders:
-            try:
-                # Load client
-                client_res = await db.execute(select(Client).where(Client.id == order.client_id))
-                client = client_res.scalar_one_or_none()
-                if not client:
-                    continue
-                    
-                new_status = None
-                
-                # Check based on provider
-                if order.courier_provider == "steadfast":
-                    if client.steadfast_api_key and client.steadfast_secret_key:
-                        api_key = client.steadfast_api_key
-                        secret_key = decrypt_token(client.steadfast_secret_key)
-                        
-                        new_status = await CourierService.check_steadfast_status(
-                            api_key=api_key,
-                            secret_key=secret_key,
-                            tracking_code=order.courier_tracking_id
+
+        logger.info(f"Found {len(active_rows)} active courier orders to sync.")
+
+        orders_to_sync = []
+        for order, client in active_rows:
+            orders_to_sync.append({
+                "id": order.id,
+                "order_id": order.order_id,
+                "courier_provider": order.courier_provider,
+                "courier_tracking_id": order.courier_tracking_id,
+                "courier_order_id": order.courier_order_id,
+                "courier_status": order.courier_status,
+                "client_name": client.name,
+                "steadfast_api_key": client.steadfast_api_key,
+                "steadfast_secret_key": client.steadfast_secret_key,
+                "pathao_api_key": client.pathao_api_key,
+                "pathao_secret_key": client.pathao_secret_key,
+                "pathao_store_id": client.pathao_store_id,
+            })
+
+    # The db session is now closed. We perform HTTP calls session-free.
+    for item in orders_to_sync:
+        try:
+            new_status = None
+
+            # Check based on provider
+            if item["courier_provider"] == "steadfast":
+                if item["steadfast_api_key"] and item["steadfast_secret_key"]:
+                    api_key = item["steadfast_api_key"]
+                    secret_key = decrypt_token(item["steadfast_secret_key"])
+
+                    new_status = await CourierService.check_steadfast_status(
+                        api_key=api_key,
+                        secret_key=secret_key,
+                        tracking_code=item["courier_tracking_id"]
+                    )
+
+            elif item["courier_provider"] == "pathao":
+                if item["pathao_api_key"] and item["pathao_secret_key"] and item["pathao_store_id"]:
+                    try:
+                        client_id, email = item["pathao_api_key"].split("|", 1)
+                        decrypted_secret_pass = decrypt_token(item["pathao_secret_key"])
+                        client_secret, password = decrypted_secret_pass.split("|", 1)
+
+                        new_status = await CourierService.check_pathao_status(
+                            client_id=client_id,
+                            client_secret=client_secret,
+                            email=email,
+                            password=password,
+                            consignment_id=item["courier_order_id"]
                         )
-                        
-                elif order.courier_provider == "pathao":
-                    if client.pathao_api_key and client.pathao_secret_key and client.pathao_store_id:
-                        try:
-                            client_id, email = client.pathao_api_key.split("|", 1)
-                            decrypted_secret_pass = decrypt_token(client.pathao_secret_key)
-                            client_secret, password = decrypted_secret_pass.split("|", 1)
-                            
-                            new_status = await CourierService.check_pathao_status(
-                                client_id=client_id,
-                                client_secret=client_secret,
-                                email=email,
-                                password=password,
-                                consignment_id=order.courier_order_id
-                            )
-                        except ValueError:
-                            logger.error(f"Pathao credential format incorrect for client {client.name}")
-                            
-                if new_status:
-                    logger.info(f"Syncing status for order {order.order_id}: {order.courier_status} -> {new_status}")
-                    await process_courier_status_change(db, order, new_status)
-                    await db.commit()
-                
-            except Exception as e:
-                logger.error(f"Error syncing status for courier order {order.id}: {e}")
-                await db.rollback()
+                    except ValueError:
+                        logger.error(f"Pathao credential format incorrect for client {item['client_name']}")
+
+            if new_status:
+                logger.info(f"Syncing status for order {item['order_id']}: {item['courier_status']} -> {new_status}")
+                # Open a short-lived DB session to write the change
+                async with AsyncSessionLocal() as db:
+                    order_result = await db.execute(
+                        select(CourierOrder).where(CourierOrder.id == item["id"])
+                    )
+                    order = order_result.scalar_one_or_none()
+                    if order:
+                        await process_courier_status_change(db, order, new_status)
+                        await db.commit()
+
+        except Exception as e:
+            logger.error(f"Error syncing status for courier order {item['id']}: {e}")
 
 async def poll_courier_statuses_forever() -> None:
     """Background loop to sync courier statuses forever."""
     logger.info("Courier status worker initialized.")
     # Wait 60s after startup to run the first check
     await asyncio.sleep(60)
-    
+
     while True:
         try:
             await poll_active_courier_orders()

@@ -46,6 +46,7 @@ class CachedClient:
     ga4_api_secret: str | None
     deferred_purchase: bool
     webhook_url: str | None
+    shopify_shared_secret: str | None = None
     event_rules: dict | list | None = None
 
 
@@ -63,9 +64,17 @@ ALLOWED_CLIENT_AUTH_HOSTS = {
 
 
 def _origin_allowed_for_cookie_auth(request: Request) -> bool:
+    """
+    Cookie-ভিত্তিক সেশন রিকোয়েস্টে Origin যাচাই করে।
+    - Origin হেডার না থাকলে: GET/HEAD রিকোয়েস্ট হলে allow (same-origin ব্রাউজার behavior),
+      অন্যথায় reject (CSRF প্রতিরোধ)।
+    - Origin হেডার থাকলে: allowlist-এ থাকলে allow।
+    """
     origin = request.headers.get("origin")
     if not origin:
-        return True
+        # ব্রাউজার same-origin GET/HEAD রিকোয়েস্টে Origin পাঠায় না — allow
+        # POST/PATCH/DELETE-এ Origin না থাকলে সন্দেহজনক — reject
+        return request.method.upper() in ("GET", "HEAD", "OPTIONS")
     host = (urlparse(origin).hostname or "").lower()
     return host in ALLOWED_CLIENT_AUTH_HOSTS
 
@@ -124,6 +133,7 @@ def _snapshot(client: Client) -> CachedClient:
         ga4_api_secret=getattr(client, 'ga4_api_secret', None),
         deferred_purchase=getattr(client, 'deferred_purchase', False) or False,
         webhook_url=getattr(client, 'webhook_url', None),
+        shopify_shared_secret=getattr(client, 'shopify_shared_secret', None),
         event_rules=getattr(client, 'event_rules', None),
     )
 

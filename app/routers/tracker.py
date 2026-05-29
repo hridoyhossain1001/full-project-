@@ -99,18 +99,36 @@ def _attach_tracker_cookies(resp: JSONResponse, body: dict, request: Request) ->
     return resp
 
 
+# ─── Negative Cache: Invalid API Key গুলো ৩০ সেকেন্ড ব্লক রাখে (DDoS/Cache Penetration ডিফেন্স) ───
+_invalid_key_cache: dict[str, float] = {}
+_NEGATIVE_CACHE_TTL = 30      # সেকেন্ড
+_NEGATIVE_CACHE_MAX_SIZE = 2000  # সর্বোচ্চ এন্ট্রি (মেমোরি গার্ড)
+
+
 # ─── Helper: API Key থেকে Client লোড (Query param version) ──────────────────
 async def _get_client_by_key(public_key: str, db: AsyncSession) -> CachedClient:
     """
     Query parameter থেকে আসা API Key দিয়ে ক্লায়েন্ট খোঁজে।
     In-memory cache ব্যবহার করে — dependencies.py-এর সাথে cache শেয়ার করে।
+    Invalid/non-existent keys ৩০ সেকেন্ডের জন্য Negative Cache-এ রাখা হয়
+    যাতে bot spam বা ভুল key দিয়ে বারবার DB hit না হয় (Cache Penetration ডিফেন্স)।
     """
     if not public_key:
         raise HTTPException(status_code=401, detail="API Key প্রয়োজন।")
 
-    # Cache check
     now = time.time()
     cache_key = f"public:{public_key}"
+
+    # ─── ১. Negative Cache চেক (DB hit ছাড়াই Invalid Key ব্লক) ────────────
+    if public_key in _invalid_key_cache:
+        blocked_at = _invalid_key_cache[public_key]
+        if now - blocked_at < _NEGATIVE_CACHE_TTL:
+            raise HTTPException(status_code=401, detail="Invalid API Key।")
+        else:
+            # TTL শেষ — negative cache entry মুছে দাও
+            del _invalid_key_cache[public_key]
+
+    # ─── ২. Positive Cache চেক ─────────────────────────────────────────────
     if cache_key in _client_cache:
         cached, cached_at = _client_cache[cache_key]
         if now - cached_at < CACHE_TTL:
@@ -118,12 +136,19 @@ async def _get_client_by_key(public_key: str, db: AsyncSession) -> CachedClient:
                 return cached
             raise HTTPException(status_code=401, detail="Inactive API Key।")
 
-    # DB lookup
+    # ─── ৩. DB Lookup ──────────────────────────────────────────────────────
     result = await db.execute(
         select(Client).where(Client.public_key == public_key, Client.is_active == True)
     )
     client = result.scalar_one_or_none()
     if not client:
+        # Negative Cache-এ যোগ করো (মেমোরি গার্ড: ২০০০ এন্ট্রির বেশি হলে পুরনোটা বাদ)
+        if len(_invalid_key_cache) >= _NEGATIVE_CACHE_MAX_SIZE:
+            # সবচেয়ে পুরনো ২০০ এন্ট্রি বাদ দাও
+            oldest = sorted(_invalid_key_cache.items(), key=lambda x: x[1])[:200]
+            for k, _ in oldest:
+                del _invalid_key_cache[k]
+        _invalid_key_cache[public_key] = now
         raise HTTPException(status_code=401, detail="Invalid API Key।")
 
     cached = _snapshot(client)

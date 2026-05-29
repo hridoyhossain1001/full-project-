@@ -6,7 +6,7 @@ import hashlib
 import hmac
 import time
 from urllib.parse import urlencode, urlparse
-from fastapi import APIRouter, Depends, HTTPException, Form, Request
+from fastapi import APIRouter, Depends, HTTPException, Form, Request, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,7 +45,15 @@ def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
             detail="Admin configuration error: ADMIN_PASSWORD is not set."
         )
     is_user_ok = secrets.compare_digest(credentials.username, ADMIN_USERNAME)
-    is_pass_ok = secrets.compare_digest(credentials.password, ADMIN_PASSWORD)
+
+    is_pass_ok = False
+    if ADMIN_PASSWORD.startswith("sha256:"):
+        expected_hash = ADMIN_PASSWORD[7:]
+        input_hash = hashlib.sha256(credentials.password.encode("utf-8")).hexdigest()
+        is_pass_ok = hmac.compare_digest(input_hash, expected_hash)
+    else:
+        is_pass_ok = secrets.compare_digest(credentials.password, ADMIN_PASSWORD)
+
     if not (is_user_ok and is_pass_ok):
         raise HTTPException(
             status_code=401,
@@ -506,12 +514,30 @@ async def admin_clients(
     db: AsyncSession = Depends(get_db),
     msg: str = "",
     msg_type: str = "success",
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
 ):
     csrf_token = create_admin_csrf_token(username)
-    result = await db.execute(select(Client).order_by(Client.created_at.desc()))
+    from sqlalchemy import func as sql_func
+
+    # Compute counts using count queries to avoid loading all objects
+    total_clients_r = await db.execute(select(sql_func.count(Client.id)))
+    total_clients = total_clients_r.scalar() or 0
+
+    active_count_r = await db.execute(select(sql_func.count(Client.id)).where(Client.is_active == True))
+    active_count = active_count_r.scalar() or 0
+    inactive_count = total_clients - active_count
+
+    total_pages = (total_clients + page_size - 1) // page_size if total_clients > 0 else 1
+
+    # Fetch paginated clients
+    result = await db.execute(
+        select(Client)
+        .order_by(Client.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     clients = result.scalars().all()
-    active_count = sum(1 for c in clients if c.is_active)
-    inactive_count = len(clients) - active_count
 
     from datetime import datetime, timezone
     from sqlalchemy import func as sql_func, and_
@@ -546,6 +572,10 @@ async def admin_clients(
             "monthly_usage_map": monthly_usage_map,
             "msg": msg,
             "msg_type": msg_type,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+            "total_clients": total_clients,
         }
     )
 
@@ -696,6 +726,8 @@ async def update_monthly_limit(
 @limiter.limit("10/minute")
 async def admin_logs(
     request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
     username: str = Depends(verify_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -727,8 +759,16 @@ async def admin_logs(
 
     total = events_today + failed_today
 
+    # Paginate EventLog queries to prevent database connection starvation and resource exhaustion
+    total_logs_r = await db.execute(select(sql_func.count(EventLog.id)))
+    total_logs = total_logs_r.scalar() or 0
+    total_pages = (total_logs + page_size - 1) // page_size if total_logs > 0 else 1
+
     logs_r = await db.execute(
-        select(EventLog).order_by(EventLog.created_at.desc()).limit(100)
+        select(EventLog)
+        .order_by(EventLog.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
     event_logs = logs_r.scalars().all()
 
@@ -753,6 +793,10 @@ async def admin_logs(
             "event_logs": event_logs,
             "client_map": client_map,
             "failed_events": failed_events,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+            "total_logs": total_logs,
         }
     )
 

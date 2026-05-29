@@ -8,7 +8,7 @@ class EventLog(Base):
     __tablename__ = "event_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    client_id = Column(Integer, ForeignKey("clients.id"), nullable=False, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
     event_name = Column(String, nullable=False, index=True)  # PageView, Purchase, etc.
     event_id = Column(String, nullable=True, index=True)     # Deduplication key (client_id + event_id = unique)
     event_count = Column(Integer, default=1)                 # একবারে কয়টি ইভেন্ট পাঠানো হয়েছে

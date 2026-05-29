@@ -1,11 +1,15 @@
 import hmac
 import logging
 import os
+import json
+import hashlib
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, Request, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+
+from app.security import decrypt_token
 
 from app.database import get_db
 from app.models.client import Client
@@ -90,13 +94,13 @@ async def process_courier_status_change(
     provider = courier_order.courier_provider
     mapped_status = CourierService.map_status(provider, new_raw_status)
     old_status = courier_order.courier_status
-    
+
     if old_status == mapped_status:
         return # No change
-        
+
     # Update order details
     courier_order.courier_status = mapped_status
-    
+
     # Append to history
     history = courier_order.status_history or []
     if not isinstance(history, list):
@@ -107,20 +111,22 @@ async def process_courier_status_change(
         "time": datetime.now(timezone.utc).isoformat()
     })
     courier_order.status_history = history
-    
+
     client_result = await db.execute(select(Client).where(Client.id == courier_order.client_id))
     client = client_result.scalar_one_or_none()
-    
+
     pending_event = None
     if courier_order.pending_event_id:
         pending_result = await db.execute(
-            select(PendingEvent).where(PendingEvent.id == courier_order.pending_event_id)
+            select(PendingEvent)
+            .where(PendingEvent.id == courier_order.pending_event_id)
+            .with_for_update()  # Race condition প্রতিরোধ — concurrent webhook retry-তে double event এড়াতে
         )
         pending_event = pending_result.scalar_one_or_none()
-        
+
     if client and pending_event:
         client_snapshot = _snapshot(client)
-        
+
         # 1. Handle DELIVERED (trigger auto Purchase event)
         if mapped_status == "delivered" and not courier_order.purchase_event_sent:
             logger.info(f"Order {courier_order.order_id} delivered! Queueing auto Purchase event.")
@@ -134,7 +140,7 @@ async def process_courier_status_change(
                 pending_event.is_confirmed = True
             except Exception as e:
                 logger.error(f"Failed to queue auto Purchase event for delivered order {courier_order.order_id}: {e}")
-                
+
         # 2. Handle RETURNED or CANCELLED (trigger Refund event to Facebook)
         elif mapped_status in ("returned", "cancelled"):
             # Refund event goes if it was already delivered/purchased, or if we want to log the cancel event.
@@ -145,10 +151,10 @@ async def process_courier_status_change(
                     await _queue_refund_event(client_snapshot, pending_event, db)
                 except Exception as e:
                     logger.error(f"Failed to queue Refund event for order {courier_order.order_id}: {e}")
-            
+
             pending_event.status = "cancelled"
             pending_event.portal_state = "cancelled"
-            
+
     db.add(courier_order)
     if pending_event:
         db.add(pending_event)
@@ -162,33 +168,58 @@ async def steadfast_webhook(request: Request, db: AsyncSession = Depends(get_db)
     """
     _verify_courier_webhook_secret(request)
     try:
-        payload = await request.json()
+        raw_body = await request.body()
+        payload = json.loads(raw_body.decode("utf-8"))
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload.")
-        
+
     tracking_code = payload.get("tracking_code")
     status = payload.get("status")
     invoice = payload.get("invoice")
-    
+
     if not tracking_code or not status:
         logger.warning(f"SteadFast webhook received invalid data: {payload}")
         return {"status": "ignored", "reason": "missing tracking_code or status"}
-        
+
     logger.info(f"SteadFast webhook received for {tracking_code}: status={status}, invoice={invoice}")
-    
+
     # Find matching courier order
     result = await db.execute(
         select(CourierOrder).where(CourierOrder.courier_tracking_id == str(tracking_code))
     )
     courier_order = result.scalar_one_or_none()
-    
+
     if not courier_order:
         logger.warning(f"SteadFast courier order not found for tracking: {tracking_code}")
         return {"status": "ignored", "reason": "order not found"}
-        
+
+    # Get associated client and decrypt secret key to verify HMAC-SHA256 signature
+    client_result = await db.execute(select(Client).where(Client.id == courier_order.client_id))
+    client = client_result.scalar_one_or_none()
+    if not client or not client.steadfast_secret_key:
+        raise HTTPException(status_code=401, detail="Client steadfast secret key not configured")
+
+    try:
+        decrypted_secret = decrypt_token(client.steadfast_secret_key, allow_legacy_plaintext=True)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Failed to decrypt client secret key")
+
+    received_sig = request.headers.get("x-steadfast-signature") or request.headers.get("x-signature")
+    if not received_sig:
+        raise HTTPException(status_code=401, detail="Missing signature header")
+
+    computed_sig = hmac.new(
+        decrypted_secret.encode("utf-8"),
+        msg=raw_body,
+        digestmod=hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(computed_sig, received_sig):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
     await process_courier_status_change(db, courier_order, status)
     await db.commit()
-    
+
     return {"status": "success"}
 
 @router.post("/v1/webhook/pathao")
@@ -198,31 +229,58 @@ async def pathao_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """
     _verify_courier_webhook_secret(request)
     try:
-        payload = await request.json()
+        raw_body = await request.body()
+        payload = json.loads(raw_body.decode("utf-8"))
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload.")
-        
+
     consignment_id = payload.get("consignment_id")
     status = payload.get("status")
     merchant_order_id = payload.get("merchant_order_id")
-    
+
     if not consignment_id or not status:
         logger.warning(f"Pathao webhook received invalid data: {payload}")
         return {"status": "ignored", "reason": "missing consignment_id or status"}
-        
+
     logger.info(f"Pathao webhook received for {consignment_id}: status={status}")
-    
+
     # Find matching courier order
     result = await db.execute(
         select(CourierOrder).where(CourierOrder.courier_order_id == str(consignment_id))
     )
     courier_order = result.scalar_one_or_none()
-    
+
     if not courier_order:
         logger.warning(f"Pathao courier order not found for consignment: {consignment_id}")
         return {"status": "ignored", "reason": "order not found"}
-        
+
+    # Get associated client and decrypt secret key to verify HMAC-SHA256 signature
+    client_result = await db.execute(select(Client).where(Client.id == courier_order.client_id))
+    client = client_result.scalar_one_or_none()
+    if not client or not client.pathao_secret_key:
+        raise HTTPException(status_code=401, detail="Client pathao secret key not configured")
+
+    try:
+        raw_secret = decrypt_token(client.pathao_secret_key, allow_legacy_plaintext=True)
+        # pathao_secret_key format: "client_secret|password" — শুধু client_secret দিয়ে HMAC হবে
+        client_secret = raw_secret.split("|", 1)[0] if "|" in raw_secret else raw_secret
+    except Exception:
+        raise HTTPException(status_code=401, detail="Failed to decrypt client pathao secret key")
+
+    received_sig = request.headers.get("x-pathao-signature") or request.headers.get("x-signature")
+    if not received_sig:
+        raise HTTPException(status_code=401, detail="Missing signature header")
+
+    computed_sig = hmac.new(
+        client_secret.encode("utf-8"),
+        msg=raw_body,
+        digestmod=hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(computed_sig, received_sig):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
     await process_courier_status_change(db, courier_order, status)
     await db.commit()
-    
+
     return {"status": "success"}

@@ -1,14 +1,19 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.sql import func
 from app.database import Base
 
 
 class ClientUser(Base):
     __tablename__ = "client_users"
+    __table_args__ = (
+        # Multi-tenancy: একই ইমেইল ভিন্ন ক্লায়েন্ট কোম্পানিতে ব্যবহার করা যাবে
+        # Global unique=True সরানো হয়েছে — SaaS-এ এটি ভুল ছিল
+        UniqueConstraint("client_id", "email", name="uq_client_users_client_email"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    client_id = Column(Integer, ForeignKey("clients.id"), nullable=False, index=True)
-    email = Column(String(255), unique=True, nullable=False, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
+    email = Column(String(255), nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(120), nullable=True)
     notification_email = Column(String(255), nullable=True)

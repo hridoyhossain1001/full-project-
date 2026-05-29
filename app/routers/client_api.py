@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, update, desc
+from sqlalchemy import select, func, and_, update, desc, cast, Numeric
 
 from app.database import get_db
 from app.models.client import Client
@@ -205,7 +205,7 @@ async def get_profile(
 ):
     now = datetime.now(timezone.utc)
     monthly_key = f"monthly:{now.strftime('%Y-%m')}"
-    
+
     result = await db.execute(
         select(UsageCounter.count).where(
             and_(
@@ -223,15 +223,13 @@ async def get_profile(
     elif events_quota <= 250000:
         plan_name = "Scale Plan"
 
-    email = f"{client.name.lower().replace(' ', '')}@domain.com"
     try:
         user, _, _ = await get_client_user_from_cookie(request, db)
-        email = user.email
+    except HTTPException:
+        raise
     except Exception:
-        result_user = await db.execute(select(ClientUser).where(ClientUser.client_id == client.id))
-        user = result_user.scalars().first()
-        if user:
-            email = user.email
+        raise HTTPException(status_code=401, detail="Invalid user session.")
+    email = user.email
 
     last_day = calendar.monthrange(now.year, now.month)[1]
     renewal_date = now.replace(day=last_day).strftime("%B %d, %Y")
@@ -253,13 +251,13 @@ async def update_profile(
     db: AsyncSession = Depends(get_db)
 ):
     client.name = _clean_name(payload.name, "Display name")
-    
-    user = None
+
     try:
         user, _, _ = await get_client_user_from_cookie(request, db)
+    except HTTPException:
+        raise
     except Exception:
-        result_user = await db.execute(select(ClientUser).where(ClientUser.client_id == client.id))
-        user = result_user.scalars().first()
+        raise HTTPException(status_code=401, detail="Invalid user session.")
 
     if user and payload.email:
         email = _validate_email(payload.email)
@@ -274,10 +272,10 @@ async def update_profile(
         # notification_email is persisted by the portal state migration.
 
     await db.commit()
-    
+
     now = datetime.now(timezone.utc)
     monthly_key = f"monthly:{now.strftime('%Y-%m')}"
-    
+
     result = await db.execute(
         select(UsageCounter.count).where(
             and_(
@@ -300,7 +298,7 @@ async def update_profile(
 
     return {"success": True, "profile": {
         "name": client.name,
-        "email": user.email if user else (payload.email or f"{client.name.lower().replace(' ', '')}@domain.com"),
+        "email": user.email,
         "plan": plan_name,
         "renewalDate": renewal_date,
         "eventsUsed": events_used,
@@ -315,10 +313,28 @@ async def update_account_password(
 ):
     require_allowed_origin(request)
     _validate_password(payload.newPassword)
-    user, _, _ = await get_client_user_from_cookie(request, db)
+
+    # Retrieve user and the current session to exempt it from revocation
+    user, _, current_session = await get_client_user_from_cookie(request, db)
+
     if not verify_password(payload.currentPassword, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect.")
+
     user.password_hash = hash_password(payload.newPassword)
+
+    # Revoke all other active sessions for this user
+    from app.models.client_session import ClientSession
+    from sqlalchemy import update as sql_update
+    await db.execute(
+        sql_update(ClientSession)
+        .where(
+            ClientSession.user_id == user.id,
+            ClientSession.id != current_session.id,
+            ClientSession.revoked_at.is_(None)
+        )
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+
     await db.commit()
     return {"success": True}
 
@@ -510,11 +526,11 @@ async def update_rules(
 ):
     client.event_rules = _validate_rules(payload.rules)
     await db.commit()
-    
+
     # Clear client cache
     from app.dependencies import clear_client_cache
     clear_client_cache(client.api_key)
-    
+
     return {"success": True, "rules": client.event_rules}
 
 # ─── Telemetry Logs ───────────────────────────────────────────────────────────
@@ -529,7 +545,7 @@ async def get_events(
 ):
     query = select(EventLog).where(EventLog.client_id == client.id).order_by(desc(EventLog.created_at))
     count_query = select(func.count(EventLog.id)).where(EventLog.client_id == client.id)
-    
+
     if status:
         status_list = status.split(",")
         db_statuses = [s.lower() for s in status_list]
@@ -553,10 +569,10 @@ async def get_events(
             count_query = count_query.where(
                 (EventLog.event_name.like("Facebook:%")) | (~EventLog.event_name.contains(":"))
             )
-        
+
     result = await db.execute(query.offset(offset).limit(limit))
     logs = result.scalars().all()
-    
+
     count_r = await db.execute(count_query)
     total_count = count_r.scalar() or 0
 
@@ -565,7 +581,7 @@ async def get_events(
         raw_event_name = log.event_name
         log_platform = "Meta CAPI"
         display_event_name = raw_event_name
-        
+
         if ":" in raw_event_name:
             parts = raw_event_name.split(":", 1)
             channel = parts[0]
@@ -644,7 +660,7 @@ async def get_api_logs(
         log_platform = "Meta CAPI"
         display_event_name = raw_event_name
         endpoint = f"https://graph.facebook.com/v18.0/{client.pixel_id or 'pixel_id'}/events"
-        
+
         if ":" in raw_event_name:
             parts = raw_event_name.split(":", 1)
             channel = parts[0]
@@ -846,7 +862,7 @@ async def get_suggestions(client: Client = Depends(get_current_portal_client)):
     dismissed = set(getattr(client, 'dismissed_suggestions', None) or [])
     resolved = set(getattr(client, 'resolved_suggestions', None) or [])
     recommendations = []
-    
+
     if not client.ga4_measurement_id or not client.enable_ga4:
         recommendations.append({
             "id": "sugg_ga4_pipeline",
@@ -920,7 +936,8 @@ async def toggle_resolve_suggestion(
         client.resolved_suggestions = resolved
         await db.commit()
     except Exception:
-        pass  # Column may not exist yet — gracefully degrade
+        await db.rollback()  # Rollback transaction to prevent session corruption
+        logger.warning("resolved_suggestions column may not exist yet — gracefully degraded.")
     return {"success": True}
 
 @router.post("/suggestions/dismiss")
@@ -936,7 +953,8 @@ async def dismiss_suggestion(
         client.dismissed_suggestions = dismissed
         await db.commit()
     except Exception:
-        pass  # Column may not exist yet — gracefully degrade
+        await db.rollback()  # Rollback transaction to prevent session corruption
+        logger.warning("dismissed_suggestions column may not exist yet — gracefully degraded.")
     return {"success": True}
 
 @router.post("/suggestions/ai-review")
@@ -1047,7 +1065,7 @@ async def get_deferred_purchases(
         .group_by(PendingEvent.status)
     )
     deferred_counts = {status: int(count or 0) for status, count in counts_r}
-    
+
     confirmed_total = deferred_counts.get("confirmed", 0)
     cancelled_total = deferred_counts.get("cancelled", 0)
     expired_total = deferred_counts.get("expired", 0)
@@ -1064,37 +1082,75 @@ async def get_deferred_purchases(
     )
     confirmed_today = confirmed_today_r.scalar() or 0
 
-    value_rows = await db.execute(
-        select(PendingEvent.event_data).where(
-            and_(
-                PendingEvent.client_id == client.id,
-                PendingEvent.status == "pending",
-            )
-        )
-    )
-    pending_value = 0.0
-    for event_data in value_rows.scalars().all():
-        custom_data = (event_data or {}).get("custom_data", {}) or {}
-        try:
-            pending_value += float(custom_data.get("value") or 0)
-        except (TypeError, ValueError):
-            pass
-
-    oldest_stmt = select(func.min(PendingEvent.created_at)).where(
+    sum_and_min_stmt = select(
+        func.sum(cast(PendingEvent.event_data['custom_data']['value'].astext, Numeric)),
+        func.min(PendingEvent.created_at)
+    ).where(
         and_(
             PendingEvent.client_id == client.id,
             PendingEvent.status == "pending"
         )
     )
-    oldest_res = await db.execute(oldest_stmt)
-    oldest_created = oldest_res.scalar()
-    
+    sum_and_min_res = await db.execute(sum_and_min_stmt)
+    sum_val, oldest_created = sum_and_min_res.fetchone()
+    pending_value = float(sum_val or 0.0)
+
     now_utc = datetime.now(timezone.utc)
     if oldest_created:
         created = oldest_created.replace(tzinfo=timezone.utc) if oldest_created.tzinfo is None else oldest_created
         oldest_age_hours = round((now_utc - created).total_seconds() / 3600, 1)
     else:
         oldest_age_hours = 0.0
+
+    # Masking helper functions to fix PII partial exposure on dashboard
+    def mask_pii_email(value: str | None) -> str:
+        if not value or value == "—":
+            return "—"
+        value = str(value).strip()
+        if "@" not in value:
+            return value
+        parts = value.split("@", 1)
+        username = parts[0]
+        domain = parts[1] if len(parts) > 1 else ""
+        if len(username) <= 2:
+            masked_username = username[0] + "*" if username else "*"
+        else:
+            masked_username = username[0] + "*" * (len(username) - 2) + username[-1]
+        return f"{masked_username}@{domain}" if domain else masked_username
+
+    def mask_pii_phone(value: str | None) -> str:
+        if not value or value == "—":
+            return "—"
+        value = str(value).strip()
+        if len(value) <= 6:
+            return "****"
+        return value[:4] + "*" * (len(value) - 7) + value[-3:]
+
+    def mask_pii_name(name: str | None) -> str:
+        if not name or name == "—":
+            return "—"
+        parts = name.strip().split()
+        if not parts:
+            return "—"
+        masked_parts = []
+        for part in parts:
+            if len(part) <= 2:
+                masked_parts.append(part[0] + "*")
+            else:
+                masked_parts.append(part[0] + "*" * (len(part) - 1))
+        return " ".join(masked_parts)
+
+    def mask_pii_address(address: str | None) -> str:
+        if not address or address == "—":
+            return "—"
+        address = address.strip()
+        if len(address) <= 10:
+            return address[:3] + "..."
+        parts = address.split(",")
+        if len(parts) >= 2:
+            visible = parts[-1].strip()
+            return "... " + visible
+        return address[:6] + "..."
 
     pending_list = []
     for pe in pending_events:
@@ -1110,18 +1166,18 @@ async def get_deferred_purchases(
         customer_em = ud.get("em", ["—"])
         customer_str = "—"
         if customer_ph and customer_ph[0] != "—":
-            customer_str = customer_ph[0]
+            customer_str = mask_pii_phone(customer_ph[0])
         elif customer_em and customer_em[0] != "—":
-            customer_str = customer_em[0]
+            customer_str = mask_pii_email(customer_em[0])
 
         pending_list.append({
             "id": pe.id,
             "orderId": pe.order_id,
             "amount": custom_data.get("value", 0),
             "customer": customer_str,
-            "recipientName": raw_order_data.get("recipient_name"),
-            "recipientPhone": raw_order_data.get("recipient_phone"),
-            "recipientAddress": raw_order_data.get("recipient_address"),
+            "recipientName": mask_pii_name(raw_order_data.get("recipient_name")),
+            "recipientPhone": mask_pii_phone(raw_order_data.get("recipient_phone")),
+            "recipientAddress": mask_pii_address(raw_order_data.get("recipient_address")),
             "fraudScore": pe.fraud_score or 0,
             "fraudDetails": pe.fraud_details or {},
             "ageHours": age_h,
@@ -1151,13 +1207,13 @@ async def save_deferred_settings(
     client.deferred_purchase = payload.deferredEnabled
     client.auto_confirm_days = min(max(0, payload.autoConfirmDays), 7)
     client.auto_confirm_status = payload.autoConfirmStatus.strip() or "completed"
-    
+
     await db.commit()
-    
+
     # Clear client cache
     from app.dependencies import clear_client_cache
     clear_client_cache(client.api_key)
-    
+
     return {
         "success": True,
         "message": "COD Protection settings synchronized successfully.",
@@ -1215,9 +1271,9 @@ async def api_cancel_deferred_bulk(
     client: Client = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db)
 ):
-    from app.routers.deferred_events import bulk_cancel_events, BulkConfirmRequest
+    from app.routers.deferred_events import bulk_cancel_events, BulkCancelRequest
     try:
-        res = await bulk_cancel_events(BulkConfirmRequest(order_ids=payload.order_ids), client=client, db=db)
+        res = await bulk_cancel_events(BulkCancelRequest(order_ids=payload.order_ids), client=client, db=db)
         return {"success": True, "cancelled": res.cancelled, "failed": res.failed, "details": res.details}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

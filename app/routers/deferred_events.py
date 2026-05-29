@@ -12,12 +12,13 @@ Endpoints:
 """
 
 import logging
+import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, field_validator
-from sqlalchemy import select, update, and_, func as sql_func
+from sqlalchemy import select, update, and_, func as sql_func, cast, Numeric
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -79,6 +80,25 @@ class CancelRequest(BaseModel):
         if not value:
             raise ValueError("order_id is required")
         return value
+
+
+class BulkCancelRequest(BaseModel):
+    order_ids: List[str]
+
+    @field_validator("order_ids")
+    @classmethod
+    def normalize_order_ids(cls, values: List[str]) -> List[str]:
+        normalized = []
+        seen = set()
+        for value in values or []:
+            order_id = str(value or "").strip()
+            if not order_id or order_id in seen:
+                continue
+            seen.add(order_id)
+            normalized.append(order_id)
+        if not normalized:
+            raise ValueError("order_ids is required")
+        return normalized
 
 
 class PendingEventResponse(BaseModel):
@@ -305,63 +325,89 @@ async def confirm_event(
     একটি pending Purchase event কনফার্ম করে delivery queue-তে রাখে।
     Original user data (IP, UA, fbp, fbc) সহ পাঠানো হয়।
     """
+    if not client.deferred_purchase:
+        raise HTTPException(
+            status_code=403,
+            detail="Deferred purchase feature is not enabled for this client.",
+        )
+
+    # First, fetch the pending event WITHOUT locking to avoid connection locking during external API call
     result = await db.execute(
         select(PendingEvent).where(
             and_(
                 PendingEvent.client_id == client.id,
                 PendingEvent.order_id == payload.order_id,
-                PendingEvent.status == "pending",
             )
-        ).with_for_update()
+        )
     )
     pending = result.scalar_one_or_none()
 
     if not pending:
-        courier_booked_result = await db.execute(
-            select(PendingEvent).where(
-                and_(
-                    PendingEvent.client_id == client.id,
-                    PendingEvent.order_id == payload.order_id,
-                    PendingEvent.status == "courier_booked",
-                )
-            )
-        )
-        if courier_booked_result.scalar_one_or_none():
-            return ConfirmResponse(
-                status="success",
-                order_id=payload.order_id,
-                message="Order is already booked with courier. Purchase event will fire after delivery.",
-            )
-        confirmed_result = await db.execute(
-            select(PendingEvent).where(
-                and_(
-                    PendingEvent.client_id == client.id,
-                    PendingEvent.order_id == payload.order_id,
-                    PendingEvent.status == "confirmed",
-                )
-            )
-        )
-        if confirmed_result.scalar_one_or_none():
-            return ConfirmResponse(
-                status="success",
-                order_id=payload.order_id,
-                message="Purchase event was already confirmed.",
-            )
         raise HTTPException(
             status_code=404,
             detail=f"Pending event not found: {payload.order_id}",
         )
 
+    # Resolve status-based misleading error codes
+    if pending.status == "courier_booked":
+        return ConfirmResponse(
+            status="success",
+            order_id=payload.order_id,
+            message="Order is already booked with courier. Purchase event will fire after delivery.",
+        )
+    elif pending.status == "confirmed":
+        return ConfirmResponse(
+            status="success",
+            order_id=payload.order_id,
+            message="Purchase event was already confirmed.",
+        )
+    elif pending.status == "cancelled":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot confirm order because it is already cancelled: {payload.order_id}",
+        )
+    elif pending.status == "expired":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot confirm order because it is expired: {payload.order_id}",
+        )
+    elif pending.status != "pending":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot confirm order due to invalid status: {pending.status}",
+        )
+
+    # Proceed with external courier booking BEFORE holding row lock
     booking = await _auto_book_courier_for_pending(client.id, pending, db)
+
+    # Now hold the row lock and verify the status is still 'pending' to prevent split-brain transaction commits
+    lock_res = await db.execute(
+        select(PendingEvent).where(
+            and_(
+                PendingEvent.id == pending.id,
+                PendingEvent.status == "pending",
+            )
+        ).with_for_update()
+    )
+    pending_locked = lock_res.scalar_one_or_none()
+
+    if not pending_locked:
+        # Rollback any additions to db session (like the CourierOrder) to ensure transaction protection
+        await db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Order status changed during booking.",
+        )
+
     if booking["mode"] in {"booked", "already_booked"}:
-        pending.status = "courier_booked"
-        pending.portal_state = "processing"
-        pending.is_confirmed = True
+        pending_locked.status = "courier_booked"
+        pending_locked.portal_state = "processing"
+        pending_locked.is_confirmed = True
         message = booking["message"]
         logger.info(f"[{client.name}] Order confirmed and booked with courier: {payload.order_id}")
     elif booking["mode"] == "not_configured":
         try:
-            await _queue_confirmed_event(client, pending, db)
+            await _queue_confirmed_event(client, pending_locked, db)
         except HTTPException:
             await db.rollback()
             raise
@@ -372,10 +418,10 @@ async def confirm_event(
                 status_code=500,
                 detail=f"Purchase event queue করতে সমস্যা: {e}",
             )
-        pending.status = "confirmed"
-        pending.portal_state = "confirmed"
-        pending.is_confirmed = True
-        pending.confirmed_at = datetime.now(timezone.utc)
+        pending_locked.status = "confirmed"
+        pending_locked.portal_state = "confirmed"
+        pending_locked.is_confirmed = True
+        pending_locked.confirmed_at = datetime.now(timezone.utc)
         message = "Purchase event delivery queue-তে রাখা হয়েছে."
         logger.info(f"[{client.name}] Order confirmed & queued directly: {payload.order_id}")
     else:
@@ -406,13 +452,19 @@ async def bulk_confirm_events(
     """
     একাধিক pending Purchase event একসাথে কনফার্ম করে delivery queue-তে রাখে।
     """
+    if not client.deferred_purchase:
+        raise HTTPException(
+            status_code=403,
+            detail="Deferred purchase feature is not enabled for this client.",
+        )
+
     if not payload.order_ids:
         raise HTTPException(status_code=400, detail="order_ids খালি!")
 
     if len(payload.order_ids) > 100:
         raise HTTPException(status_code=400, detail="একবারে সর্বোচ্চ ১০০টি অর্ডার কনফার্ম করা যায়।")
 
-    # Fetch all pending events
+    # Fetch all pending events (initially without row locks to prevent blocking during network IO)
     result = await db.execute(
         select(PendingEvent).where(
             and_(
@@ -420,7 +472,7 @@ async def bulk_confirm_events(
                 PendingEvent.order_id.in_(payload.order_ids),
                 PendingEvent.status == "pending",
             )
-        ).with_for_update()
+        )
     )
     pending_events = result.scalars().all()
 
@@ -429,34 +481,199 @@ async def bulk_confirm_events(
     failed = 0
     details = []
 
+    # Fetch ClientModel details once
+    client_res = await db.execute(select(ClientModel).where(ClientModel.id == client.id))
+    client_obj = client_res.scalar_one_or_none()
+
+    # Fetch existing courier orders for these order IDs once
+    existing_orders_res = await db.execute(
+        select(CourierOrder.order_id).where(
+            and_(
+                CourierOrder.client_id == client.id,
+                CourierOrder.order_id.in_(payload.order_ids),
+            )
+        )
+    )
+    existing_order_ids = set(existing_orders_res.scalars().all())
+
+    auto_send = client_obj and client_obj.courier_auto_send
+    default_provider = str(client_obj.default_courier or "").strip().lower() if client_obj else None
+
+    # Categorize and prepare tasks for external HTTP requests
+    tasks_to_run = []
+    event_actions = {}
+
     for pending in pending_events:
+        oid = pending.order_id
+        if not auto_send:
+            event_actions[oid] = {"action": "direct"}
+            continue
+
+        if not default_provider:
+            event_actions[oid] = {"action": "fail", "error": "Default courier provider is missing."}
+            continue
+
+        if oid in existing_order_ids:
+            event_actions[oid] = {"action": "already_booked"}
+            continue
+
+        raw = pending.raw_order_data or {}
+        missing = [
+            key
+            for key in ("recipient_name", "recipient_phone", "recipient_address")
+            if not str(raw.get(key) or "").strip()
+        ]
+        if missing:
+            event_actions[oid] = {
+                "action": "fail",
+                "error": "Courier booking data missing: " + ", ".join(missing),
+            }
+            continue
+
+        cod_amount = float(raw.get("cod_amount") or 0)
+        recipient_name = str(raw.get("recipient_name") or "").strip()
+        recipient_phone = str(raw.get("recipient_phone") or "").strip()
+        recipient_address = str(raw.get("recipient_address") or "").strip()
+
+        if default_provider == "steadfast":
+            if not (client_obj.steadfast_api_key and client_obj.steadfast_secret_key):
+                event_actions[oid] = {"action": "fail", "error": "SteadFast credentials are missing."}
+                continue
+
+            task = CourierService.send_to_steadfast(
+                api_key=client_obj.steadfast_api_key,
+                secret_key=decrypt_token(client_obj.steadfast_secret_key),
+                recipient_name=recipient_name,
+                recipient_phone=recipient_phone,
+                recipient_address=recipient_address,
+                cod_amount=cod_amount,
+                merchant_order_id=oid,
+            )
+            tasks_to_run.append((oid, task))
+
+        elif default_provider == "pathao":
+            if not (client_obj.pathao_api_key and client_obj.pathao_secret_key and client_obj.pathao_store_id):
+                event_actions[oid] = {"action": "fail", "error": "Pathao credentials are missing."}
+                continue
+            try:
+                pathao_client_id, email = client_obj.pathao_api_key.split("|", 1)
+                pathao_client_secret, password = decrypt_token(client_obj.pathao_secret_key).split("|", 1)
+            except ValueError:
+                event_actions[oid] = {"action": "fail", "error": "Pathao credentials format is invalid."}
+                continue
+
+            task = CourierService.send_to_pathao(
+                client_id=pathao_client_id,
+                client_secret=pathao_client_secret,
+                email=email,
+                password=password,
+                store_id=client_obj.pathao_store_id,
+                recipient_name=recipient_name,
+                recipient_phone=recipient_phone,
+                recipient_address=recipient_address,
+                cod_amount=cod_amount,
+                merchant_order_id=oid,
+            )
+            tasks_to_run.append((oid, task))
+        else:
+            event_actions[oid] = {"action": "fail", "error": f"Unsupported courier provider: {default_provider}"}
+
+    # Run API calls in parallel (completely outside database-level transactional locks!)
+    if tasks_to_run:
+        order_ids_for_tasks = [item[0] for item in tasks_to_run]
+        tasks = [item[1] for item in tasks_to_run]
+
+        # Gather with return_exceptions=True to avoid one failure crashing the entire batch
+        api_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for oid, res in zip(order_ids_for_tasks, api_results):
+            if isinstance(res, Exception):
+                event_actions[oid] = {"action": "fail", "error": f"Network exception: {str(res)}"}
+            elif not res.get("success"):
+                event_actions[oid] = {
+                    "action": "fail",
+                    "error": res.get("error") or "Unknown courier error",
+                }
+            else:
+                event_actions[oid] = {
+                    "action": "book_success",
+                    "courier_order_id": res.get("courier_order_id"),
+                    "tracking_id": res.get("tracking_id"),
+                }
+
+    # Now persist the changes inside DB transaction blocks
+    for pending in pending_events:
+        oid = pending.order_id
+        action_info = event_actions.get(oid, {"action": "direct"})
+        action = action_info["action"]
+
         try:
             async with db.begin_nested():
-                booking = await _auto_book_courier_for_pending(client.id, pending, db)
-                if booking["mode"] in {"booked", "already_booked"}:
-                    pending.status = "courier_booked"
-                    pending.portal_state = "processing"
-                    pending.is_confirmed = True
-                    mode = "courier"
-                elif booking["mode"] == "not_configured":
-                    await _queue_confirmed_event(client, pending, db)
-                    pending.status = "confirmed"
-                    pending.portal_state = "confirmed"
-                    pending.is_confirmed = True
-                    pending.confirmed_at = datetime.now(timezone.utc)
-                    mode = "direct"
-                else:
-                    raise HTTPException(status_code=400, detail=booking["message"])
-            confirmed += 1
-            details.append({"order_id": pending.order_id, "status": "queued", "mode": mode})
+                # Re-fetch with row lock to prevent race conditions during updates
+                lock_res = await db.execute(
+                    select(PendingEvent).where(
+                        PendingEvent.id == pending.id
+                    ).with_for_update()
+                )
+                pending_locked = lock_res.scalar_one_or_none()
+                if not pending_locked or pending_locked.status != "pending":
+                    raise HTTPException(status_code=400, detail="Order status changed during booking.")
+
+                if action == "direct":
+                    await _queue_confirmed_event(client, pending_locked, db)
+                    pending_locked.status = "confirmed"
+                    pending_locked.portal_state = "confirmed"
+                    pending_locked.is_confirmed = True
+                    pending_locked.confirmed_at = datetime.now(timezone.utc)
+                    confirmed += 1
+                    details.append({"order_id": oid, "status": "queued", "mode": "direct"})
+
+                elif action == "already_booked":
+                    pending_locked.status = "courier_booked"
+                    pending_locked.portal_state = "processing"
+                    pending_locked.is_confirmed = True
+                    confirmed += 1
+                    details.append({"order_id": oid, "status": "queued", "mode": "courier"})
+
+                elif action == "book_success":
+                    raw = pending_locked.raw_order_data or {}
+                    cod_amount = float(raw.get("cod_amount") or 0)
+
+                    courier_order = CourierOrder(
+                        client_id=client.id,
+                        pending_event_id=pending_locked.id,
+                        order_id=oid,
+                        courier_provider=default_provider,
+                        courier_order_id=action_info.get("courier_order_id"),
+                        courier_tracking_id=action_info.get("tracking_id"),
+                        courier_status="pending",
+                        recipient_name=str(raw.get("recipient_name") or "").strip(),
+                        recipient_phone=str(raw.get("recipient_phone") or "").strip(),
+                        recipient_address=str(raw.get("recipient_address") or "").strip(),
+                        cod_amount=cod_amount,
+                        status_history=[{"status": "pending", "time": datetime.now(timezone.utc).isoformat()}],
+                    )
+                    db.add(courier_order)
+
+                    pending_locked.status = "courier_booked"
+                    pending_locked.portal_state = "processing"
+                    pending_locked.is_confirmed = True
+
+                    confirmed += 1
+                    details.append({"order_id": oid, "status": "queued", "mode": "courier"})
+
+                elif action == "fail":
+                    error_msg = action_info.get("error") or "Unknown error"
+                    raise HTTPException(status_code=400, detail=error_msg)
+
         except HTTPException as e:
             failed += 1
-            details.append({"order_id": pending.order_id, "status": "failed", "error": str(e.detail)})
-            logger.error(f"[{client.name}] Bulk confirm queue rejected ({pending.order_id}): {e.detail}")
+            details.append({"order_id": oid, "status": "failed", "error": str(e.detail)})
+            logger.error(f"[{client.name}] Bulk confirm queue rejected ({oid}): {e.detail}")
         except Exception as e:
             failed += 1
-            details.append({"order_id": pending.order_id, "status": "failed", "error": f"Internal error: {str(e)}"})
-            logger.exception(f"[{client.name}] Bulk confirm queue failed ({pending.order_id})")
+            details.append({"order_id": oid, "status": "failed", "error": f"Internal error: {str(e)}"})
+            logger.exception(f"[{client.name}] Bulk confirm queue failed ({oid})")
 
     # Not found orders
     for oid in payload.order_ids:
@@ -492,12 +709,17 @@ async def cancel_event(
     Pending Purchase event ক্যান্সেল করে।
     Facebook-এ কোনো ডেটা পাঠানো হয় না।
     """
+    if not client.deferred_purchase:
+        raise HTTPException(
+            status_code=403,
+            detail="Deferred purchase feature is not enabled for this client.",
+        )
+
     result = await db.execute(
         select(PendingEvent).where(
             and_(
                 PendingEvent.client_id == client.id,
                 PendingEvent.order_id == payload.order_id,
-                PendingEvent.status == "pending",
             )
         ).with_for_update()
     )
@@ -507,6 +729,33 @@ async def cancel_event(
         raise HTTPException(
             status_code=404,
             detail=f"Pending event not found: {payload.order_id}",
+        )
+
+    if pending.status == "cancelled":
+        return ConfirmResponse(
+            status="success",
+            order_id=payload.order_id,
+            message="❌ Purchase event already cancelled.",
+        )
+    elif pending.status == "confirmed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel order because it is already confirmed: {payload.order_id}",
+        )
+    elif pending.status == "courier_booked":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel order because it is already booked with courier: {payload.order_id}",
+        )
+    elif pending.status == "expired":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel order because it is expired: {payload.order_id}",
+        )
+    elif pending.status != "pending":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel order due to invalid status: {pending.status}",
         )
 
     pending.status = "cancelled"
@@ -529,11 +778,17 @@ async def cancel_event(
     summary="Cancel multiple pending Purchase events",
 )
 async def bulk_cancel_events(
-    payload: BulkConfirmRequest,
+    payload: BulkCancelRequest,
     client: CachedClient = Depends(get_current_client),
     db: AsyncSession = Depends(get_db),
 ):
     """Cancel multiple pending Purchase events without sending anything to ad platforms."""
+    if not client.deferred_purchase:
+        raise HTTPException(
+            status_code=403,
+            detail="Deferred purchase feature is not enabled for this client.",
+        )
+
     order_ids = list(dict.fromkeys(payload.order_ids))
     if not order_ids:
         raise HTTPException(status_code=400, detail="order_ids খালি!")
@@ -548,7 +803,7 @@ async def bulk_cancel_events(
                 PendingEvent.order_id.in_(order_ids),
                 PendingEvent.status == "pending",
             )
-        )
+        ).with_for_update()
     )
     found_ids = set(result.scalars().all())
 
@@ -594,6 +849,11 @@ async def deferred_purchase_summary(
     db: AsyncSession = Depends(get_db),
 ):
     """Compact COD/verified purchase status for dashboards and plugin widgets."""
+    if not client.deferred_purchase:
+        raise HTTPException(
+            status_code=403,
+            detail="Deferred purchase feature is not enabled for this client.",
+        )
     status_result = await db.execute(
         select(PendingEvent.status, sql_func.count(PendingEvent.id))
         .where(PendingEvent.client_id == client.id)
@@ -601,27 +861,18 @@ async def deferred_purchase_summary(
     )
     counts = {status: int(count or 0) for status, count in status_result}
 
-    pending_result = await db.execute(
-        select(PendingEvent)
-        .where(
-            and_(
-                PendingEvent.client_id == client.id,
-                PendingEvent.status == "pending",
-            )
+    sum_and_min_stmt = select(
+        sql_func.sum(cast(PendingEvent.event_data['custom_data']['value'].astext, Numeric)),
+        sql_func.min(PendingEvent.created_at)
+    ).where(
+        and_(
+            PendingEvent.client_id == client.id,
+            PendingEvent.status == "pending"
         )
     )
-    pending_events = pending_result.scalars().all()
-
-    pending_value = 0.0
-    oldest_created = None
-    for pending in pending_events:
-        custom_data = (pending.event_data or {}).get("custom_data", {}) or {}
-        try:
-            pending_value += float(custom_data.get("value") or 0)
-        except (TypeError, ValueError):
-            pass
-        if pending.created_at and (oldest_created is None or pending.created_at < oldest_created):
-            oldest_created = pending.created_at
+    sum_and_min_res = await db.execute(sum_and_min_stmt)
+    sum_val, oldest_created = sum_and_min_res.fetchone()
+    pending_value = float(sum_val or 0.0)
 
     oldest_age_hours = None
     if oldest_created:
@@ -653,6 +904,11 @@ async def list_pending_events(
     limit: int = Query(20, ge=1, le=100),
 ):
     """Pending Purchase events-এর paginated list"""
+    if not client.deferred_purchase:
+        raise HTTPException(
+            status_code=403,
+            detail="Deferred purchase feature is not enabled for this client.",
+        )
     offset = (page - 1) * limit
 
     # Total count

@@ -14,7 +14,7 @@ class EventOutbox(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    client_id = Column(Integer, ForeignKey("clients.id"), nullable=False, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
     event_payload = Column(JSON, nullable=False)
     request_context = Column(JSON, nullable=True)
     usage_reserved = Column(JSON, nullable=True)

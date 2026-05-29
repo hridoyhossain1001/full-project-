@@ -75,10 +75,7 @@ async def claim_due_failed_events(db: AsyncSession, limit: int = 20) -> list[Fai
                     # that may have crashed before the retry completed.
                     and_(
                         FailedEvent.status == "retrying",
-                        or_(
-                            FailedEvent.last_retry_at <= now - timedelta(seconds=min_delay),
-                            FailedEvent.last_retry_at <= stale_before,
-                        ),
+                        FailedEvent.last_retry_at <= stale_before,
                     ),
                 ),
             )

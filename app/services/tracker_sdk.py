@@ -2,14 +2,20 @@
 Tracker SDK Generator — ডায়নামিক JavaScript ট্র্যাকার কোড জেনারেট করে।
 প্রতি ক্লায়েন্টের API Key embed করে কাস্টমাইজড JS রিটার্ন করে।
 """
+import re
 
 
 def generate_tracker_js(api_key: str, gateway_origin: str) -> str:
+    # Strict regex validation for api_key to prevent injection
+    if not api_key or not re.match(r"^[a-zA-Z0-9_\-]+$", api_key):
+        raise ValueError("Invalid API Key format")
+
+    # Strict regex validation for gateway_origin to prevent Host Header Injection and XSS
+    if not gateway_origin or not re.match(r"^https?://[a-zA-Z0-9.\-]+(?::[0-9]+)?$", gateway_origin):
+        raise ValueError("Invalid gateway origin format")
+
     """
     API Key ও AdSync API URL embed করে মিনিফাইড-স্টাইল JavaScript কোড রিটার্ন করে।
-
-    Features:
-    - Auto PageView on load
     - _fbc / _fbp cookie capture
     - SHA-256 hashing (browser-native SubtleCrypto)
     - Beacon API with fetch fallback
@@ -211,19 +217,28 @@ function capi(cmd){{
 window.capi=capi;
 
 /* ─── SPA Support (History API) ────────────────────────────────── */
-var origPush=history.pushState;
-var origReplace=history.replaceState;
-history.pushState=function(){{
-  origPush.apply(this,arguments);
-  setTimeout(function(){{send('PageView');}},100);
-}};
-history.replaceState=function(){{
-  origReplace.apply(this,arguments);
-  setTimeout(function(){{send('PageView');}},100);
-}};
-window.addEventListener('popstate',function(){{
-  setTimeout(function(){{send('PageView');}},100);
-}});
+if(history.pushState && !history.pushState.__isWrapped){{
+  var origPush=history.pushState;
+  history.pushState=function(){{
+    origPush.apply(this,arguments);
+    setTimeout(function(){{send('PageView');}},100);
+  }};
+  history.pushState.__isWrapped=true;
+}}
+if(history.replaceState && !history.replaceState.__isWrapped){{
+  var origReplace=history.replaceState;
+  history.replaceState=function(){{
+    origReplace.apply(this,arguments);
+    setTimeout(function(){{send('PageView');}},100);
+  }};
+  history.replaceState.__isWrapped=true;
+}}
+if(!window.__capi_popstate_registered){{
+  window.addEventListener('popstate',function(){{
+    setTimeout(function(){{send('PageView');}},100);
+  }});
+  window.__capi_popstate_registered=true;
+}}
 
 /* ─── Init ─────────────────────────────────────────────────────── */
 function init(){{

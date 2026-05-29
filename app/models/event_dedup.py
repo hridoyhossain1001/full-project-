@@ -13,6 +13,6 @@ class EventDedup(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    client_id = Column(Integer, ForeignKey("clients.id"), nullable=False, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
     event_id = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)

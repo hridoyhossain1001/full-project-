@@ -8,21 +8,37 @@ from app.services.event_quality import event_signal_flags
 
 def build_event_log_kwargs(
     client_id: int,
-    event_data: dict,
+    event_data,
     status: str,
     ip_address: str | None,
     **extra,
 ) -> dict:
     """
     EventLog row তৈরির জন্য kwargs dict build করে।
-    event_data একটি dict (model_dump output) হতে হবে।
+    event_data একটি dict (model_dump output) বা Pydantic model হতে পারে।
     """
+    # Enforce Pydantic model check and convert to dict
+    if hasattr(event_data, "model_dump"):
+        event_data = event_data.model_dump()
+    elif hasattr(event_data, "dict"):
+        event_data = event_data.dict()
+
+    if not isinstance(event_data, dict):
+        event_data = {}
+
     custom_data = event_data.get("custom_data") or {}
     utm_source = custom_data.get("utm_source")
-    try:
-        value = float(custom_data.get("value")) if custom_data.get("value") is not None else None
-    except (TypeError, ValueError):
+
+    # Fix the boolean float casting bug that converts True to 1.0 / False to 0.0
+    val = custom_data.get("value")
+    if isinstance(val, bool):
         value = None
+    else:
+        try:
+            value = float(val) if val is not None else None
+        except (TypeError, ValueError):
+            value = None
+
     campaign_source = custom_data.get("campaign_source") or utm_source
     return {
         "client_id": client_id,

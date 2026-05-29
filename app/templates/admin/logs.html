@@ -43,7 +43,7 @@
 
 {% if event_logs %}
 <div class="card" style="margin-bottom:24px">
-  <div class="card-header"><h2 class="card-title">📡 Recent Events (Last 100)</h2></div>
+  <div class="card-header"><h2 class="card-title">📡 Recent Events</h2></div>
   <div class="table-responsive">
     <table>
       <thead><tr>
@@ -63,6 +63,17 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+  <div class="pagination-container" style="display:flex;justify-content:space-between;align-items:center;padding:16px;border-top:1px solid var(--border-color);background:rgba(255,255,255,0.02)">
+    <span style="font-size:14px;color:var(--text-muted)">Showing page {{ page }} of {{ total_pages }} ({{ total_logs }} total logs)</span>
+    <div style="display:flex;gap:8px">
+      {% if page > 1 %}
+        <a href="/api/v1/admin/logs?page={{ page - 1 }}&page_size={{ page_size }}" class="btn btn-outline" style="padding:4px 12px;font-size:12px">Previous</a>
+      {% endif %}
+      {% if page < total_pages %}
+        <a href="/api/v1/admin/logs?page={{ page + 1 }}&page_size={{ page_size }}" class="btn btn-outline" style="padding:4px 12px;font-size:12px">Next</a>
+      {% endif %}
+    </div>
   </div>
 </div>
 {% else %}

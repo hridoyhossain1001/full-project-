@@ -3,6 +3,7 @@ import secrets
 import logging
 import hmac
 import time
+import hashlib
 from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,7 +80,12 @@ def verify_admin_api_key(
     admin_key = os.getenv("ADMIN_API_KEY", "")
     if not admin_key:
         raise HTTPException(status_code=503, detail="Admin API key is not configured")
-    
+
+    # Evaluate X-Admin-API-Key first (HMAC-based key has higher priority and should not be bypassed by Bearer exceptions)
+    if x_admin_api_key and hmac.compare_digest(x_admin_api_key, admin_key):
+        return "admin-api"
+
+    # Evaluate Bearer token next
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()
         try:
@@ -88,11 +94,9 @@ def verify_admin_api_key(
                 return "admin-api"
         except Exception as e:
             raise HTTPException(status_code=401, detail=f"Invalid or expired token: {str(e)}")
-            
-    if x_admin_api_key and hmac.compare_digest(x_admin_api_key, admin_key):
-        return "admin-api"
-        
+
     raise HTTPException(status_code=403, detail="Admin access required")
+
 
 def client_to_api_dict(client: Client, event_total: int = 0, last_event_at=None, mask_keys: bool = False) -> dict:
     api_key = mask_secret(client.api_key) if mask_keys else client.api_key
@@ -375,7 +379,23 @@ async def admin_api_login(request: Request, payload: AdminLoginRequest):
             detail="Admin authentication is not configured on the server."
         )
 
-    if not hmac.compare_digest(payload.username, admin_user) or not hmac.compare_digest(payload.password, admin_pass):
+    username_ok = hmac.compare_digest(payload.username, admin_user)
+
+    password_ok = False
+    if admin_pass.startswith("sha256:"):
+        # সুরক্ষিত পদ্ধতি: ADMIN_PASSWORD=sha256:<hex> ফরম্যাটে ENV-এ রাখতে হবে
+        expected_hash = admin_pass[7:]
+        input_hash = hashlib.sha256(payload.password.encode("utf-8")).hexdigest()
+        password_ok = hmac.compare_digest(input_hash, expected_hash)
+    else:
+        # Plaintext password fallback for backward compatibility - log security warning
+        logger.warning(
+            "ADMIN_PASSWORD is stored as plaintext in environment — this is insecure. "
+            "Set ADMIN_PASSWORD=sha256:<sha256_hex_of_password> to fix this."
+        )
+        password_ok = hmac.compare_digest(payload.password, admin_pass)
+
+    if not username_ok or not password_ok:
         raise HTTPException(
             status_code=401,
             detail="Incorrect username or password"

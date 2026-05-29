@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import get_current_client, CachedClient
 from app.models.event_log import EventLog
-from app.services.dedup_service import reserve_unique_event_ids
+from app.services.dedup_service import reserve_unique_event_ids, rollback_redis_dedup
 from app.schemas.event import EventsPayload, EventsResponse, UserData, _clean_and_hash
 from app.services.geoip_service import get_location_data
 from app.services.event_quality import boost_event_quality
@@ -36,7 +36,7 @@ FRAUD_INTERNAL_CUSTOM_KEYS = {
 }
 
 
-from app.utils.event_log_helpers import build_event_log_kwargs as _event_log_kwargs
+
 
 # ─── Domain Validation Helper ────────────────────────────────────────────────
 def _is_domain_allowed(request_host: str, allowed_domain: str) -> bool:
@@ -87,7 +87,7 @@ async def reserve_unique_events(
     db: AsyncSession,
     client: CachedClient,
     events: list,
-) -> list:
+) -> tuple[list, set[str]]:
     """
     Reserve event IDs atomically before sending to Facebook.
     The unique index on (client_id, event_id) closes the concurrent duplicate race.
@@ -102,7 +102,7 @@ async def reserve_unique_events(
         candidate_ids.append(event.event_id)
 
     if not candidate_ids:
-        return [event for event in events if not event.event_id]
+        return [event for event in events if not event.event_id], set()
 
     reserved_ids = await reserve_unique_event_ids(db, client.id, candidate_ids)
 
@@ -121,7 +121,7 @@ async def reserve_unique_events(
             continue
         unique_events.append(event)
 
-    return unique_events
+    return unique_events, reserved_ids
 
 
 @router.post(
@@ -168,9 +168,20 @@ async def receive_events(
         # Split allowed domains by comma
         allowed_domains = [d.strip().lower() for d in client.domain.split(",") if d.strip()]
 
-        origin_host = (urlparse(origin).hostname or "").lower()
-        referer_host = (urlparse(referer).hostname or "").lower()
-        declared_host = (urlparse(declared_origin).hostname or declared_origin).lower().strip()
+        def _extract_hostname(url: str) -> str:
+            url = url.strip()
+            if not url:
+                return ""
+            if "://" not in url:
+                # Prepend dummy scheme so urlparse identifies hostname properly when scheme is missing
+                parsed = urlparse("http://" + url)
+            else:
+                parsed = urlparse(url)
+            return (parsed.hostname or url).lower().strip()
+
+        origin_host = _extract_hostname(origin)
+        referer_host = _extract_hostname(referer)
+        declared_host = _extract_hostname(declared_origin)
         signed_declared_origin_ok = False
 
         if declared_host and allowed_domains:
@@ -235,7 +246,8 @@ async def receive_events(
 
         # ─── GeoIP Enrichment ──────────────────────────────────────────
         if GEOIP_ENRICH_IN_REQUEST and event.user_data.client_ip_address:
-            loc_data = get_location_data(event.user_data.client_ip_address)
+            import anyio
+            loc_data = await anyio.to_thread.run_sync(get_location_data, event.user_data.client_ip_address)
             if loc_data:
                 if loc_data.get("ct") and not event.user_data.ct:
                     event.user_data.ct = [_clean_and_hash(loc_data["ct"], "ct")]
@@ -257,8 +269,9 @@ async def receive_events(
     should_hold = (hold or client.deferred_purchase) and not force_send
     deferred_count = 0
     queued_count = 0
+    reserved_ids = set()
     try:
-        unique_events = await reserve_unique_events(db, client, payload.data)
+        unique_events, reserved_ids = await reserve_unique_events(db, client, payload.data)
         if not unique_events:
             await db.commit()
             return EventsResponse(
@@ -278,24 +291,33 @@ async def receive_events(
         reserved_keys = {}
 
         # Purchase events → pending_events table; confirm flow sends these later.
+        # Parallelize fraud score calculation using asyncio.gather instead of sequential await in loops
+        from app.services.fraud_service import calculate_fraud_score
+        import asyncio
+
+        fraud_tasks = []
         for event in deferred_events:
+            fraud_tasks.append(calculate_fraud_score(db, client.id, event, client_ip))
+
+        fraud_results = []
+        if fraud_tasks:
+            try:
+                fraud_results = await asyncio.gather(*fraud_tasks)
+            except Exception as e:
+                logger.error(f"[{client.name}] Parallel fraud score calculation failed: {e}")
+                # Fallback to None for all tasks if gather failed
+                fraud_results = [(None, None) for _ in deferred_events]
+        else:
+            fraud_results = []
+
+        for event, fraud_res in zip(deferred_events, fraud_results):
+            fraud_score_val, fraud_details_val = fraud_res if fraud_res else (None, None)
             if event.custom_data and getattr(event.custom_data, "order_id", None):
                 order_id = event.custom_data.order_id
             elif event.event_id:
                 order_id = event.event_id
             else:
                 order_id = f"auto-{event.event_time}-{id(event)}"
-
-            # Calculate Fraud Score using our AdSync Heuristics Engine
-            from app.services.fraud_service import calculate_fraud_score
-            try:
-                fraud_score_val, fraud_details_val = await calculate_fraud_score(
-                    db, client.id, event, client_ip
-                )
-            except Exception as e:
-                logger.error(f"[{client.name}] Fraud score calculation failed for order {order_id}: {e}")
-                fraud_score_val = None
-                fraud_details_val = None
 
             raw_order_data = event.raw_order_data
             event_dict = _strip_internal_custom_data(event.model_dump(exclude_none=True))
@@ -353,9 +375,13 @@ async def receive_events(
         await db.commit()
     except HTTPException:
         await db.rollback()
+        if reserved_ids:
+            await rollback_redis_dedup(client.id, reserved_ids)
         raise
     except Exception:
         await db.rollback()
+        if reserved_ids:
+            await rollback_redis_dedup(client.id, reserved_ids)
         logger.exception(f"[{client.name}] Event enqueue failed")
         raise HTTPException(status_code=500, detail="Failed to enqueue events") from None
 

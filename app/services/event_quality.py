@@ -87,7 +87,7 @@ def _stable_event_suffix(event: EventData) -> str:
         ]
     )
     digest = hashlib.sha256(basis.encode("utf-8")).hexdigest()[:10]
-    return f"{digest}_{uuid.uuid4().hex[:8]}"
+    return digest
 
 
 def calculate_emq_score(event: EventData) -> float:
@@ -101,47 +101,57 @@ def calculate_emq_score(event: EventData) -> float:
     ud = event.user_data
     score = 0.0
 
+    # Helper function to check if a list field has non-empty elements
+    def has_list_val(val) -> bool:
+        if not val:
+            return False
+        return any(bool(x and str(x).strip()) for x in val)
+
+    # Helper function to check if a string field is non-empty
+    def has_str_val(val) -> bool:
+        return bool(val and str(val).strip())
+
     # Meta CAPI/TikTok high-value user identifiers
     # 1. Email (em) - 2.5 points
-    if ud.em:
+    if has_list_val(ud.em):
         score += 2.5
 
     # 2. Phone (ph) - 2.5 points
-    if ud.ph:
+    if has_list_val(ud.ph):
         score += 2.5
 
     # 3. Browser ID / First-party Cookie (fbp / ttp) - 1.0 point
-    if ud.fbp or ud.ttp:
+    if has_str_val(ud.fbp) or has_str_val(ud.ttp):
         score += 1.0
 
     # 4. Click ID (fbc / ttclid) - 1.0 point
-    if ud.fbc or ud.ttclid:
+    if has_str_val(ud.fbc) or has_str_val(ud.ttclid):
         score += 1.0
 
     # 5. External ID - 1.0 point (Crucial matching parameter)
-    if ud.external_id:
+    if has_list_val(ud.external_id):
         score += 1.0
 
     # 6. IP Address - 0.5 point
-    if ud.client_ip_address:
+    if has_str_val(ud.client_ip_address):
         score += 0.5
 
     # 7. User Agent - 0.5 point
-    if ud.client_user_agent:
+    if has_str_val(ud.client_user_agent):
         score += 0.5
 
     # 8. Individual PII parameters - 0.3 to 0.4 points each
-    if ud.fn:
+    if has_list_val(ud.fn):
         score += 0.4
-    if ud.ln:
+    if has_list_val(ud.ln):
         score += 0.4
-    if ud.ct:
+    if has_list_val(ud.ct):
         score += 0.3
-    if ud.st:
+    if has_list_val(ud.st):
         score += 0.3
-    if ud.zp:
+    if has_list_val(ud.zp):
         score += 0.3
-    if ud.country:
+    if has_list_val(ud.country):
         score += 0.3
 
     return min(10.0, round(score, 1))

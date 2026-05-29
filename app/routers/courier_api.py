@@ -1,7 +1,7 @@
 import logging
 from typing import List, Optional
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from datetime import datetime, timezone
@@ -173,21 +173,22 @@ async def send_order_to_courier(
     client: Client = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db)
 ):
-    # Retrieve pending event
+    # Retrieve pending event and lock the row to prevent concurrent double requests
     event_result = await db.execute(
         select(PendingEvent).where(
             (PendingEvent.id == req.pending_event_id) & (PendingEvent.client_id == client.id)
-        )
+        ).with_for_update()
     )
     pending_event = event_result.scalar_one_or_none()
     if not pending_event:
         raise HTTPException(status_code=404, detail="Order (pending event) not found.")
         
-    # Check if this order is already sent
+    # Check if this order is already sent — with_for_update() দিয়ে race condition রোধ করা হচ্ছে
+    # (concurrent request দুটি একই সাথে pass করে double booking করতে পারবে না)
     order_exist = await db.execute(
         select(CourierOrder).where(
             (CourierOrder.client_id == client.id) & (CourierOrder.order_id == pending_event.order_id)
-        )
+        ).with_for_update(skip_locked=False)
     )
     if order_exist.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="This order has already been sent to a courier.")
@@ -284,9 +285,18 @@ async def send_order_to_courier(
     }
 
 @router.get("/courier/orders", response_model=List[CourierOrderResponse])
-async def get_courier_orders(client: Client = Depends(get_current_portal_client), db: AsyncSession = Depends(get_db)):
+async def get_courier_orders(
+    client: Client = Depends(get_current_portal_client),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
     result = await db.execute(
-        select(CourierOrder).where(CourierOrder.client_id == client.id).order_by(desc(CourierOrder.created_at))
+        select(CourierOrder)
+        .where(CourierOrder.client_id == client.id)
+        .order_by(desc(CourierOrder.created_at))
+        .offset(offset)
+        .limit(limit)
     )
     orders = result.scalars().all()
     
