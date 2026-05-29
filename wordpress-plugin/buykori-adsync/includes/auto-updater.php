@@ -19,7 +19,7 @@ if (!defined('ABSPATH')) {
 function buykorigw_clear_update_cache()
 {
     $settings = buykorigw_get_settings();
-    $cache_key = 'buykorigw_update_info_' . md5($settings['api_key'] ?? '');
+    $cache_key = 'buykorigw_update_info_' . BUYKORIGW_VERSION . '_' . md5($settings['api_key'] ?? '');
 
     delete_transient($cache_key);
     delete_site_transient('update_plugins');
@@ -151,14 +151,19 @@ class BUYKORIGW_Auto_Updater
     private function get_remote_info()
     {
         $settings = buykorigw_get_settings();
-        $cache_key = 'buykorigw_update_info_' . md5($settings['api_key'] ?? '');
+        $cache_key = 'buykorigw_update_info_' . BUYKORIGW_VERSION . '_' . md5($settings['api_key'] ?? '');
         $cached = get_transient($cache_key);
 
         if ($cached !== false) {
             return $cached;
         }
 
-        $response = wp_remote_get($this->update_url, array(
+        $request_url = add_query_arg(array(
+            'installed_version' => $this->current_version,
+            'cache_bust' => time(),
+        ), $this->update_url);
+
+        $response = wp_remote_get($request_url, array(
             'timeout' => 10,
             'sslverify' => true,
             'headers' => array(
