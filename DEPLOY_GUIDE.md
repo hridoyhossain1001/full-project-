@@ -187,6 +187,17 @@ python deploy\changed_deploy.py --base origin/main
 If SSH key auth is not configured yet, set `DO_SSH_PASSWORD` for that command only.
 Use `--skip-migrations` or `--skip-restart` only when you are sure that step is not needed.
 
+### Pending deploy hardening
+
+The Droplet already has a non-root `buykori` user that owns `/var/www/buykori-adsync`.
+Next security step is to move local deploys from `root` to `buykori`:
+
+- add this PC's public SSH key to `/home/buykori/.ssh/authorized_keys`
+- grant `buykori` limited passwordless sudo only for `supervisorctl status` and restarting `buykori-web` / `buykori-worker:*`
+- set `DO_SSH_USER=buykori` for `deploy/changed_deploy.py`
+
+Do this only after explicit approval because it is a persistent production access-control change.
+
 ---
 
 ## দৈনন্দিন ব্যবস্থাপনা
