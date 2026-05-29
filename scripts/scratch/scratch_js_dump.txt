@@ -1,0 +1,377 @@
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <script>
+    var ctx = document.getElementById('eventsChart').getContext('2d');
+    new Chart(ctx, {{
+      type: 'line',
+      data: {{
+        labels: {labels_json},
+        datasets: [
+          {{
+            label: 'Success',
+            data: {success_json},
+            borderColor: '#00e676',
+            backgroundColor: 'rgba(0, 230, 118, 0.1)',
+            fill: true,
+            tension: 0.4,
+            borderWidth: 2,
+            pointRadius: 4,
+            pointBackgroundColor: '#00e676',
+          }},
+          {{
+            label: 'Failed',
+            data: {failed_json},
+            borderColor: '#ff5252',
+            backgroundColor: 'rgba(255, 82, 82, 0.1)',
+            fill: true,
+            tension: 0.4,
+            borderWidth: 2,
+            pointRadius: 4,
+            pointBackgroundColor: '#ff5252',
+          }}
+        ]
+      }},
+      options: {{
+        responsive: true,
+        plugins: {{
+          legend: {{
+            labels: {{ color: '#94a3b8', font: {{ family: 'Outfit' }} }}
+          }}
+        }},
+        scales: {{
+          x: {{
+            ticks: {{ color: '#64748b', font: {{ size: 11 }} }},
+            grid: {{ color: 'rgba(255,255,255,0.05)' }}
+          }},
+          y: {{
+            beginAtZero: true,
+            ticks: {{ color: '#64748b', font: {{ size: 11 }} }},
+            grid: {{ color: 'rgba(255,255,255,0.05)' }}
+          }}
+        }}
+      }}
+    }});
+    </script>
+
+    <script>
+    function openTab(evt, tabId) {{
+      var i, tc, tl;
+      tc = document.getElementsByClassName("tab-content");
+      for (i = 0; i < tc.length; i++) {{ tc[i].className = tc[i].className.replace(" active", ""); }}
+      tl = document.getElementsByClassName("tab-btn");
+      for (i = 0; i < tl.length; i++) {{ tl[i].className = tl[i].className.replace(" active", ""); }}
+      document.getElementById(tabId).className += " active";
+      evt.currentTarget.className += " active";
+    }}
+
+    function generateEventCode() {{
+        var ev = document.getElementById('event_selector').value;
+        var code = "";
+        var fbEvent = "";
+        var params = "";
+
+        switch(ev) {{
+            case 'page_view': fbEvent = 'PageView'; break;
+            case 'session_start': fbEvent = 'PageView'; params = ", {{custom_event: 'session_start'}}"; break;
+            case 'user_signup': fbEvent = 'CompleteRegistration'; break;
+            case 'user_login': fbEvent = 'Login'; break;
+            case 'user_logout': fbEvent = 'Logout'; params = ", {{custom_event: 'user_logout'}}"; break;
+            case 'view_item': fbEvent = 'ViewContent'; params = ", {{value: 100, currency: 'BDT', content_ids: ['ID-123'], content_type: 'product'}}"; break;
+            case 'add_to_cart': fbEvent = 'AddToCart'; params = ", {{value: 100, currency: 'BDT', content_ids: ['ID-123']}}"; break;
+            case 'remove_from_cart': fbEvent = 'RemoveFromCart'; params = ", {{value: 100, currency: 'BDT', content_ids: ['ID-123']}}"; break;
+            case 'view_cart': fbEvent = 'ViewCart'; params = ", {{value: 500, currency: 'BDT'}}"; break;
+            case 'begin_checkout': fbEvent = 'InitiateCheckout'; params = ", {{value: 500, currency: 'BDT'}}"; break;
+            case 'purchase': fbEvent = 'Purchase'; params = ", {{value: 1500, currency: 'BDT', content_ids: ['ID-123'], order_id: 'ORD-001'}}"; break;
+            case 'search': fbEvent = 'Search'; params = ", {{search_string: 'T-shirt'}}"; break;
+            case 'form_submit': fbEvent = 'Contact'; break;
+            case 'lead': fbEvent = 'Lead'; break;
+            case 'subscription': fbEvent = 'Subscribe'; params = ", {{value: 500, currency: 'BDT'}}"; break;
+            case 'refund': fbEvent = 'Refund'; params = ", {{value: 1500, currency: 'BDT', order_id: 'ORD-001'}}"; break;
+            case 'error': fbEvent = 'Error'; params = ", {{error_msg: 'Payment failed'}}"; break;
+            case 'api_call': fbEvent = 'API_Call'; params = ", {{endpoint: '/pay'}}"; break;
+        }}
+
+        code = "<script>\\n  // Event: " + ev + "\\n  capi('track', '" + fbEvent + "'" + params + ");\\n</scr" + "ipt>";
+
+        document.getElementById('generated_code_box').innerText = code;
+        document.getElementById('code_result_area').style.display = 'block';
+    }}
+    </script>
+
+    <script>
+    // ─── Pending Orders AJAX Functions ─────────────────────────────────
+    var BASE_API = '{gateway_origin}/api/v1';
+
+    function showStatus(msg, type) {{
+      var el = document.getElementById('pending-status');
+      if (!el) return;
+      el.style.display = 'block';
+      el.style.background = type === 'success' ? 'rgba(0,230,118,0.1)' : 'rgba(255,82,82,0.1)';
+      el.style.border = type === 'success' ? '1px solid rgba(0,230,118,0.2)' : '1px solid rgba(255,82,82,0.2)';
+      el.style.color = type === 'success' ? '#00e676' : '#ff5252';
+      el.innerText = msg;
+      setTimeout(function() {{ el.style.display = 'none'; }}, 5000);
+    }}
+
+    async function confirmOrder(orderId) {{
+      if (!confirm('অর্ডার ' + orderId + ' কনফার্ম করবেন? Purchase event Facebook-এ পাঠানো হবে।')) return;
+      try {{
+        var res = await fetch(BASE_API + '/events/confirm', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          credentials: 'include',
+          body: JSON.stringify({{ order_id: orderId }})
+        }});
+        var data = await res.json();
+        if (res.ok) {{
+          showStatus('✅ ' + orderId + ' কনফার্ম হয়েছে! Facebook-এ পাঠানো হয়েছে।', 'success');
+          var row = document.getElementById('row-' + orderId);
+          if (row) row.style.opacity = '0.3';
+          setTimeout(function() {{ if (row) row.remove(); }}, 2000);
+        }} else {{
+          showStatus('❌ Error: ' + (data.detail || 'Unknown error'), 'error');
+        }}
+      }} catch(e) {{
+        showStatus('❌ Network error: ' + e.message, 'error');
+      }}
+    }}
+
+    async function cancelOrder(orderId) {{
+      if (!confirm('অর্ডার ' + orderId + ' ক্যান্সেল করবেন? Facebook-এ কিছু পাঠানো হবে না।')) return;
+      try {{
+        var res = await fetch(BASE_API + '/events/cancel', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          credentials: 'include',
+          body: JSON.stringify({{ order_id: orderId }})
+        }});
+        var data = await res.json();
+        if (res.ok) {{
+          showStatus('❌ ' + orderId + ' ক্যান্সেল হয়েছে।', 'success');
+          var row = document.getElementById('row-' + orderId);
+          if (row) row.style.opacity = '0.3';
+          setTimeout(function() {{ if (row) row.remove(); }}, 2000);
+        }} else {{
+          showStatus('❌ Error: ' + (data.detail || 'Unknown error'), 'error');
+        }}
+      }} catch(e) {{
+        showStatus('❌ Network error: ' + e.message, 'error');
+      }}
+    }}
+
+    function selectAllPending() {{
+      var cbs = document.querySelectorAll('.pending-cb');
+      var allChecked = Array.from(cbs).every(function(cb) {{ return cb.checked; }});
+      cbs.forEach(function(cb) {{ cb.checked = !allChecked; }});
+    }}
+
+    async function confirmSelected() {{
+      var cbs = document.querySelectorAll('.pending-cb:checked');
+      if (cbs.length === 0) {{ showStatus('⚠️ কোনো অর্ডার সিলেক্ট করা হয়নি!', 'error'); return; }}
+      if (!confirm(cbs.length + 'টি অর্ডার কনফার্ম করবেন?')) return;
+
+      var orderIds = Array.from(cbs).map(function(cb) {{ return cb.value; }});
+      try {{
+        var res = await fetch(BASE_API + '/events/confirm/bulk', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          credentials: 'include',
+          body: JSON.stringify({{ order_ids: orderIds }})
+        }});
+        var data = await res.json();
+        if (res.ok) {{
+          showStatus('✅ ' + data.confirmed + 'টি কনফার্ম হয়েছে, ' + data.failed + 'টি ব্যর্থ।', 'success');
+          orderIds.forEach(function(oid) {{
+            var row = document.getElementById('row-' + oid);
+            if (row) {{ row.style.opacity = '0.3'; setTimeout(function() {{ row.remove(); }}, 2000); }}
+          }});
+        }} else {{
+          showStatus('❌ Error: ' + (data.detail || 'Unknown error'), 'error');
+        }}
+      }} catch(e) {{
+        showStatus('❌ Network error: ' + e.message, 'error');
+      }}
+    }}
+    </script>
+
+    <script>
+    // ─── Analytics Charts ─────────────────────────────────────────────────
+    (async function loadAnalytics() {{
+      try {{
+        // Fetch overview data
+        var res = await fetch(BASE_API + '/analytics/overview?days=7', {{
+          credentials: 'include'
+        }});
+        if (!res.ok) return;
+        var data = await res.json();
+
+        // Conversion Funnel
+        var fc = document.getElementById('funnel-container');
+        if (fc && data.funnel) {{
+          var funnelColors = ['#7e57c2','#42a5f5','#66bb6a','#ffab00','#00e676'];
+          var maxCount = Math.max(...data.funnel.map(function(f) {{ return f.count; }}), 1);
+          var fhtml = '';
+          data.funnel.forEach(function(step, i) {{
+            var width = Math.max((step.count / maxCount) * 100, 5);
+            var dropText = i > 0 && step.drop_off > 0 ? '<span style="color:#ff5252;font-size:11px;margin-left:8px;">↓' + step.drop_off.toFixed(1) + '%</span>' : '';
+            fhtml += '<div style="margin-bottom:10px;">' +
+              '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">' +
+                '<span style="color:#ccc">' + step.step + dropText + '</span>' +
+                '<span style="color:#fff;font-weight:600">' + step.count.toLocaleString() + '</span>' +
+              '</div>' +
+              '<div style="background:rgba(255,255,255,0.05);border-radius:6px;height:8px;overflow:hidden;">' +
+                '<div style="width:' + width + '%;height:100%;background:' + funnelColors[i % 5] + ';border-radius:6px;transition:width 0.8s ease;"></div>' +
+              '</div></div>';
+          }});
+          fc.innerHTML = fhtml;
+        }}
+
+        // Event Breakdown — Doughnut Chart
+        if (data.event_breakdown && data.event_breakdown.length > 0) {{
+          var bdLabels = data.event_breakdown.map(function(e) {{ return e.event_name; }});
+          var bdData = data.event_breakdown.map(function(e) {{ return e.count; }});
+          var bdColors = ['#7e57c2','#42a5f5','#66bb6a','#ffab00','#ff5252','#00e676','#ff7043','#ab47bc','#26c6da','#8d6e63'];
+          new Chart(document.getElementById('breakdownChart'), {{
+            type: 'doughnut',
+            data: {{
+              labels: bdLabels,
+              datasets: [{{
+                data: bdData,
+                backgroundColor: bdColors.slice(0, bdLabels.length),
+                borderWidth: 0,
+              }}]
+            }},
+            options: {{
+              responsive: true,
+              plugins: {{
+                legend: {{ position: 'right', labels: {{ color: '#ccc', font: {{ size: 11 }} }} }}
+              }}
+            }}
+          }});
+        }}
+
+        // Hourly Heatmap
+        var hRes = await fetch(BASE_API + '/analytics/hourly?days=7', {{
+          credentials: 'include'
+        }});
+        if (hRes.ok) {{
+          var hData = await hRes.json();
+          var hLabels = hData.data.map(function(h) {{ return h.hour + ':00'; }});
+          var hCounts = hData.data.map(function(h) {{ return h.count; }});
+          var maxH = Math.max(...hCounts, 1);
+          var hColors = hCounts.map(function(c) {{
+            var intensity = Math.min(c / maxH, 1);
+            return 'rgba(126,87,194,' + (0.2 + intensity * 0.8) + ')';
+          }});
+          new Chart(document.getElementById('hourlyChart'), {{
+            type: 'bar',
+            data: {{
+              labels: hLabels,
+              datasets: [{{
+                label: 'Events',
+                data: hCounts,
+                backgroundColor: hColors,
+                borderRadius: 4,
+              }}]
+            }},
+            options: {{
+              responsive: true,
+              plugins: {{ legend: {{ display: false }} }},
+              scales: {{
+                x: {{ grid: {{ display: false }}, ticks: {{ color: '#666', font: {{ size: 10 }} }} }},
+                y: {{ grid: {{ color: 'rgba(255,255,255,0.05)' }}, ticks: {{ color: '#666' }} }}
+              }}
+            }}
+          }});
+        }}
+      }} catch(e) {{
+        console.log('Analytics load error:', e);
+      }}
+    }})();
+    </script>
+
+    <script>
+    // ─── Debug & Testing Functions ────────────────────────────────────────
+    async function sendTestEvent() {{
+      var evName = document.getElementById('test-event-name').value;
+      var el = document.getElementById('test-result');
+      el.innerHTML = '<span style="color:#ffab00">⏳ পাঠাচ্ছে...</span>';
+      try {{
+        var res = await fetch(BASE_API + '/debug/test-event', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          credentials: 'include',
+          body: JSON.stringify({{ event_name: evName }})
+        }});
+        var data = await res.json();
+        if (res.ok) {{
+          el.innerHTML = '<span style="color:#00e676">✅ ' + evName + ' event পাঠানো হয়েছে!</span><br><span style="color:#666">ID: ' + data.event_id + '</span>';
+        }} else {{
+          el.innerHTML = '<span style="color:#ff5252">❌ ' + (data.detail || 'Error') + '</span>';
+        }}
+      }} catch(e) {{
+        el.innerHTML = '<span style="color:#ff5252">❌ Network error</span>';
+      }}
+    }}
+
+    async function validatePayload() {{
+      var el = document.getElementById('validate-result');
+      var raw = document.getElementById('validate-payload').value;
+      if (!raw.trim()) {{ el.innerHTML = '<span style="color:#ff5252">Payload দিন!</span>'; return; }}
+      try {{
+        var payload = JSON.parse(raw);
+        var res = await fetch(BASE_API + '/debug/validate', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          credentials: 'include',
+          body: raw
+        }});
+        var data = await res.json();
+        var emqColor = data.emq_estimate >= 7 ? '#00e676' : data.emq_estimate >= 4 ? '#ffab00' : '#ff5252';
+        var html = '<div style="margin-bottom:8px;"><span style="font-size:16px;color:' + emqColor + ';font-weight:bold">EMQ: ' + data.emq_estimate + '/10</span> ';
+        html += data.is_valid ? '<span style="color:#00e676">✅ Valid</span>' : '<span style="color:#ff5252">❌ Invalid</span>';
+        html += '</div>';
+        data.issues.forEach(function(i) {{
+          var c = i.status === 'ok' ? '#00e676' : i.status === 'warning' ? '#ffab00' : '#ff5252';
+          html += '<div style="color:' + c + ';margin:2px 0;">' + i.message + '</div>';
+        }});
+        el.innerHTML = html;
+      }} catch(e) {{
+        el.innerHTML = '<span style="color:#ff5252">❌ Invalid JSON: ' + e.message + '</span>';
+      }}
+    }}
+
+    async function refreshLiveEvents() {{
+      var el = document.getElementById('live-events');
+      el.innerHTML = '<span style="color:#ffab00">Loading...</span>';
+      try {{
+        var res = await fetch(BASE_API + '/debug/recent?limit=20&minutes=60', {{
+          credentials: 'include'
+        }});
+        if (!res.ok) {{ el.innerHTML = '<span style="color:#ff5252">Error loading events</span>'; return; }}
+        var data = await res.json();
+        if (data.events.length === 0) {{
+          el.innerHTML = '<span style="color:#555">No events in the last hour</span>';
+          return;
+        }}
+        var html = '';
+        data.events.forEach(function(ev) {{
+          var statusColor = ev.status === 'success' ? '#00e676' : '#ff5252';
+          var ageStr = ev.age_seconds < 60 ? Math.round(ev.age_seconds) + 's ago' : Math.round(ev.age_seconds / 60) + 'm ago';
+          html += '<div style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.03);display:flex;gap:12px;align-items:center;">';
+          html += '<span style="color:#555;min-width:55px;">' + ageStr + '</span>';
+          html += '<span style="color:' + statusColor + ';min-width:12px;">' + (ev.status === 'success' ? '●' : '○') + '</span>';
+          html += '<span style="color:#ccc;min-width:120px;font-weight:600;">' + ev.event_name + '</span>';
+          html += '<span style="color:#555;font-size:10px;">' + (ev.event_id || '') + '</span>';
+          html += '</div>';
+        }});
+        el.innerHTML = html;
+      }} catch(e) {{
+        el.innerHTML = '<span style="color:#ff5252">Error: ' + e.message + '</span>';
+      }}
+    }}
+    // Auto-load live events
+    refreshLiveEvents();
+    </script>
+    """
+
+    return HTMLResponse(base_html(f"Dashboard — {client.name}", body))

@@ -44,7 +44,7 @@ Location: `app/security.py` lines 14-17, `app/main.py` lines 21-23, `.env` line 
 Evidence: `app/security.py` raises when `ENCRYPTION_KEY` is empty; `app/main.py` raises when `ADMIN_API_KEY` is absent. The current `.env` contains `ENCRYPTION_KEY` but it is empty, and `.env` does not contain `ADMIN_API_KEY`.  
 Impact: Local `uvicorn app.main:app` / plain app import fails before startup. Production will also fail if either variable is missing.  
 Fix: Generate and set a real Fernet `ENCRYPTION_KEY`; add `ADMIN_API_KEY` in deployment config. Consider adding `.env.example` with required keys and a startup config validation message that lists missing key names only.  
-False positive notes: If production config vars are already set in Heroku, production may be fine; local `.env` is currently not runnable.
+False positive notes: If production config vars are already set in the production environment, production may be fine; local `.env` is currently not runnable.
 
 ### H-2 Host header is trusted without TrustedHostMiddleware
 
@@ -54,7 +54,7 @@ Location: `app/main.py` lines 88-113, `app/routers/tracker.py` lines 95-100, `ap
 Evidence: No `TrustedHostMiddleware` is configured. The tracker and portal build URLs from `Host` / `X-Forwarded-Proto`.  
 Impact: Depending on proxy/cache behavior, this can enable host-header poisoning, bad generated integration URLs, or cache poisoning of `/t.js?key=...` responses.  
 Fix: Add `TrustedHostMiddleware` with allowed production hostnames from env, and only trust forwarded headers from known proxies.  
-Mitigation: Ensure Heroku/CDN/reverse proxy rejects unexpected hosts before the app.
+Mitigation: Ensure reverse proxy/CDN rejects unexpected hosts before the app.
 
 ## Medium Severity
 

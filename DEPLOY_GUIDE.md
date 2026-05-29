@@ -1,209 +1,232 @@
-# Buykori AdSync — Deployment Guide (Heroku CLI)
+# Buykori AdSync — Deployment Guide (DigitalOcean Droplet)
 
-## প্রজেক্ট স্ট্রাকচার
+এই গাইডে **DigitalOcean Droplet**-এ Buykori AdSync সার্ভার deploy করার সম্পূর্ণ পদ্ধতি দেওয়া আছে।
+
+---
+
+## প্রয়োজনীয় জিনিস
+
+- DigitalOcean Droplet (Ubuntu 22.04/24.04 LTS, ন্যূনতম 2GB RAM)
+- একটি Domain (যেমন: `api.buykori.app`) — Droplet IP-তে A record point করা
+- Git repository access
+
+---
+
+## প্রজেক্ট ফাইল কাঠামো
+
 ```
-Server site traking/
-├── app/
-│   ├── main.py              # FastAPI app + lifespan + CORS + routers
-│   ├── database.py          # Async PostgreSQL engine + session
-│   ├── dependencies.py      # API Key auth dependency
-│   ├── limiter.py           # Shared rate limiter instance
-│   ├── security.py          # Fernet token encryption/decryption
-│   ├── models/
-│   │   ├── client.py        # Client model (quota/rate fields)
-│   │   ├── event_dedup.py   # Atomic event_id reservation table
-│   │   ├── event_log.py     # Event log (success/failed)
-│   │   └── failed_event.py  # Failed event retry queue
-│   ├── schemas/event.py     # Pydantic schemas
-│   ├── routers/
-│   │   ├── events.py        # POST /events — dedup → quota → CAPI → log
-│   │   ├── admin.py         # Admin Panel (HTML dashboard + forms)
-│   │   └── monitoring.py    # Health + stats endpoints
-│   └── services/
-│       ├── capi_service.py  # Facebook CAPI HTTP client
-│       └── retry_service.py # Background retry with exponential backoff
-├── migrations/
-│   ├── env.py               # Async Alembic migrations
-│   ├── script.py.mako       # Migration template
-│   └── versions/            # Migration files
-├── requirements.txt         # Python dependencies
-├── Procfile                 # Heroku: web + retry worker
-├── runtime.txt              # Python runtime
-├── alembic.ini              # DB migration config
-├── DEPLOY_GUIDE.md          # এই ফাইল
-└── .env                     # লোকাল টেস্টের জন্য (Heroku-তে push হবে না)
+├── app/                     # FastAPI application
+├── migrations/              # Alembic DB migrations
+├── deploy/
+│   ├── nginx.conf           # Nginx configuration template
+│   ├── supervisor.conf      # Supervisor process manager config
+│   ├── deploy.sh            # Auto-deployment script
+│   └── setup.sh             # First-time server setup script
+├── requirements.txt         # Production dependencies
+├── requirements-dev.txt     # Development-only dependencies (pytest etc.)
+└── .env                     # লোকাল টেস্টের জন্য (সার্ভারে .env আলাদা)
 ```
 
 ---
 
-## ধাপ ১ — Prerequisites (একবারই করতে হবে)
+## ধাপ ১ — Droplet-এ প্রথমবার Setup
 
-### Git Install করুন
-https://git-scm.com/downloads
+SSH দিয়ে Droplet-এ ঢুকুন এবং setup script চালান:
 
-### Heroku CLI Install করুন
-https://devcenter.heroku.com/articles/heroku-cli
+```bash
+ssh root@YOUR_DROPLET_IP
 
-Terminal/PowerShell-এ চেক করুন:
-```
-git --version
-heroku --version
-```
+# প্রজেক্ট clone করুন
+git clone https://github.com/YOUR_USERNAME/buykori-adsync.git /var/www/buykori-adsync
+cd /var/www/buykori-adsync
 
----
-
-## ধাপ ২ — Heroku Login
-
-```powershell
-heroku login
-```
-ব্রাউজার খুলবে, লগইন করুন।
-
----
-
-## ধাপ ৩ — Git Repository Init
-
-আপনার প্রজেক্ট ফোল্ডারে (Server site traking):
-```powershell
-git init
-git add .
-git commit -m "Initial commit: Buykori AdSync"
+# Setup script চালান (Python, PostgreSQL, Redis, Nginx, Supervisor install/configure করবে)
+chmod +x deploy/setup.sh
+sudo bash deploy/setup.sh
 ```
 
 ---
 
-## ধাপ ৪ — Heroku App তৈরি করুন
+## ধাপ ২ — Environment Variables সেট করুন
 
-```powershell
-heroku create buykori-adsync-yourname
-```
-(yourname পরিবর্তন করুন, যেমন: buykori-adsync-hridoy)
-
----
-
-## ধাপ ৫ — Postgres Database যোগ করুন ($5/মাস)
-
-```powershell
-heroku addons:create heroku-postgresql:essential-0 -a buykori-adsync-yourname
+```bash
+sudo nano /var/www/buykori-adsync/.env
 ```
 
-DATABASE_URL অটো সেট হয়ে যাবে।
+নিচের variables সেট করুন:
 
----
+```env
+DATABASE_URL=postgresql+asyncpg://buykori:YOUR_DB_PASSWORD@localhost:5432/buykori_adsync
+REDIS_URL=redis://localhost:6379/0
 
-## ধাপ ৬ — Environment Variables সেট করুন
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your-strong-password-here
+ADMIN_API_KEY=your-long-random-admin-api-key-64-chars
 
-```powershell
-# Admin credentials
-heroku config:set ADMIN_USERNAME=admin ADMIN_PASSWORD=your-strong-password -a buykori-adsync-yourname
-heroku config:set ADMIN_API_KEY=your-long-random-admin-api-key -a buykori-adsync-yourname
+ENCRYPTION_KEY=your-generated-fernet-key-here
 
-# Encryption key (Token encryption-এর জন্য আবশ্যক)
-# প্রথমে key জেনারেট করুন:
+ALLOWED_HOSTS=localhost,127.0.0.1,YOUR_DOMAIN,www.YOUR_DOMAIN,api.YOUR_DOMAIN
+
+ENABLE_DOCS=false
+ENABLE_DEBUG=false
+ENABLE_CREATE_ALL=false
+
+EVENT_INGEST_MODE=redis_stream
+DB_POOL_SIZE=5
+DB_MAX_OVERFLOW=5
+```
+
+ENCRYPTION_KEY তৈরি করতে:
+```bash
+cd /var/www/buykori-adsync
+source venv/bin/activate
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-
-# তারপর সেট করুন:
-heroku config:set ENCRYPTION_KEY=your-generated-key-here -a buykori-adsync-yourname
-```
-
-> ⚠️ **Important:** `ENCRYPTION_KEY` এবং `ADMIN_API_KEY` না থাকলে app start হবে না। Production-এ API docs default বন্ধ থাকে; staging ছাড়া `ENABLE_DOCS=true` দেবেন না।
-
----
-
-## ধাপ ৭ — Deploy করুন
-
-```powershell
-git push heroku main
-heroku run alembic upgrade head -a buykori-adsync-yourname
-heroku ps:scale web=1 worker=1 -a buykori-adsync-yourname
 ```
 
 ---
 
-## ধাপ ৮ — অ্যাপ চেক করুন
+## ধাপ ৩ — Database Setup
 
-```powershell
-heroku open -a buykori-adsync-yourname
-```
+```bash
+# Manual path only: setup.sh fresh server-এ DB user/database/tables তৈরি করে
+# এবং Alembic head stamp করে। Existing deploy/update হলে শুধু migration চালান।
 
-অথবা ব্রাউজারে যান:
-- **Health Check:** `https://buykori-adsync-yourname.herokuapp.com/`
-- **Admin Panel:** `https://buykori-adsync-yourname.herokuapp.com/api/v1/admin`
-- **API Docs:** `https://buykori-adsync-yourname.herokuapp.com/docs`
-- **System Status:** `https://buykori-adsync-yourname.herokuapp.com/api/v1/health/detailed` (admin login লাগবে)
-- **FB Connectivity:** `https://buykori-adsync-yourname.herokuapp.com/api/v1/health/facebook` (admin login লাগবে)
-- **Client Stats:** `https://buykori-adsync-yourname.herokuapp.com/api/v1/stats/clients` (admin login লাগবে)
+# PostgreSQL user ও database তৈরি
+sudo -u postgres psql -c "CREATE USER buykori WITH PASSWORD 'YOUR_DB_PASSWORD';"
+sudo -u postgres psql -c "CREATE DATABASE buykori_adsync OWNER buykori;"
 
----
-
-## ধাপ ৯ — Custom Domain যোগ করুন (Optional, Heroku লুকানোর জন্য)
-
-```powershell
-heroku domains:add tracking.yourname.com -a buykori-adsync-yourname
-heroku domains -a buykori-adsync-yourname
-```
-
-DNS Target নোট করুন (যেমন: abc123.herokudns.com)।
-আপনার Domain provider-এ CNAME Record যোগ করুন:
-- Host: tracking
-- Value: abc123.herokudns.com
-
-SSL অটো সেটআপ হবে।
-
----
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| **Multi-Tenant Events** | একাধিক ক্লায়েন্ট, আলাদা API Key ও Pixel ID |
-| **Token Encryption** | Fernet-এ encrypted, DB-তে plaintext থাকে না |
-| **Event Deduplication** | DB unique constraint দিয়ে একই client/event_id দ্বিতীয়বার পাঠানো আটকায় |
-| **Per-Client Rate Limit** | প্রতিটি ক্লায়েন্টের আলাদা rate limit (default 5000/min) |
-| **Daily Quota** | প্রতিদিন সর্বোচ্চ event সংখ্যা (default 100K) |
-| **Retry Queue** | আলাদা worker failed event retry করে (5x, exponential backoff) |
-| **Monitoring** | Admin login-protected health, FB connectivity, per-client stats |
-| **Admin Dashboard** | Dark UI, real-time analytics, client management |
-
----
-
-## Useful Commands
-
-```powershell
-# লাইভ লগ দেখুন
-heroku logs --tail -a buykori-adsync-yourname
-
-# অ্যাপ রিস্টার্ট করুন
-heroku restart -a buykori-adsync-yourname
-
-# Retry worker চালু আছে কিনা দেখুন
-heroku ps -a buykori-adsync-yourname
-
-# ডাটাবেস চেক করুন
-heroku pg:info -a buykori-adsync-yourname
-
-# Config vars দেখুন
-heroku config -a buykori-adsync-yourname
-
-# Alembic migration চালাতে (schema change-এর পর)
-heroku run alembic upgrade head -a buykori-adsync-yourname
+# Existing database/update path
+cd /var/www/buykori-adsync
+source venv/bin/activate
+alembic upgrade head
 ```
 
 ---
 
-## Admin Panel ব্যবহার
+## ধাপ ৪ — Nginx Configure করুন
 
-1. `https://your-app.herokuapp.com/api/v1/admin` এ যান
-2. Admin credentials দিয়ে লগইন করুন
-3. নতুন ক্লায়েন্ট যোগ করুন (নাম, Pixel ID, Access Token)
-4. "📋 Instructions" বাটনে ক্লিক করে ক্লায়েন্টকে পাঠানোর জন্য ইন্সট্রাকশন নিন
+```bash
+# Domain replace করুন
+sudo sed 's/DOMAIN_PLACEHOLDER/api.buykori.app/g' \
+    /var/www/buykori-adsync/deploy/nginx.conf \
+    > /etc/nginx/sites-available/buykori-adsync
+
+sudo ln -sf /etc/nginx/sites-available/buykori-adsync /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+
+# SSL Certificate (Let's Encrypt)
+sudo certbot --nginx -d api.buykori.app -d client.buykori.app -d admin.buykori.app
+```
 
 ---
 
-## Client-এর কাছ থেকে কী নেবেন?
+## ধাপ ৫ — Supervisor দিয়ে Process চালু করুন
 
-- Facebook Pixel ID (FB Events Manager → Settings)
-- CAPI Access Token (Events Manager → Settings → Conversions API → Generate Token)
-- ক্লায়েন্টের নাম
+```bash
+# Supervisor config কপি করুন
+sudo cp /var/www/buykori-adsync/deploy/supervisor.conf /etc/supervisor/conf.d/buykori-adsync.conf
+sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl start buykori-web buykori-worker
+```
 
-আপনি "Instructions" পেজে ক্লিক করলে সব তৈরি হয়ে যাবে — ক্লায়েন্টকে শুধু লিংকটা পাঠান।
+---
+
+## ধাপ ৬ — Deploy যাচাই করুন
+
+```bash
+# Status চেক
+sudo supervisorctl status
+
+# Health check
+curl https://api.buykori.app/status
+
+# Logs দেখুন
+sudo tail -f /var/log/supervisor/buykori-web.out.log
+sudo tail -f /var/log/supervisor/buykori-worker.out.log
+```
+
+**সফল হলে:**
+- **Health Check:** `https://api.buykori.app/status`
+- **Admin Panel:** `https://api.buykori.app/api/v1/admin`
+- **API Docs (dev only):** `https://api.buykori.app/docs` (ENABLE_DOCS=true হলে)
+- **Client Portal:** `https://client.buykori.app`
+
+---
+
+## ধাপ ৭ — Code Update করুন
+
+নতুন কোড push করার পর Droplet-এ:
+
+```bash
+cd /var/www/buykori-adsync
+git pull origin main
+source venv/bin/activate
+pip install -r requirements.txt --quiet
+
+# Migration থাকলে
+alembic upgrade head
+
+# Restart করুন
+sudo supervisorctl restart buykori-web buykori-worker
+```
+
+অথবা deploy script ব্যবহার করুন:
+
+```bash
+bash deploy/deploy.sh
+```
+
+---
+
+## দৈনন্দিন ব্যবস্থাপনা
+
+```bash
+# Restart
+sudo supervisorctl restart buykori-web
+sudo supervisorctl restart buykori-worker
+
+# Logs
+sudo tail -f /var/log/supervisor/buykori-web.out.log
+
+# Status
+sudo supervisorctl status
+
+# Database check
+psql -U buykori -d buykori_adsync -c "SELECT COUNT(*) FROM clients;"
+
+# Migration
+source /var/www/buykori-adsync/venv/bin/activate && alembic upgrade head
+```
+
+---
+
+## প্রথম Admin Account তৈরি করুন
+
+1. `https://api.YOUR_DOMAIN/api/v1/admin` এ যান
+2. Admin username ও password দিয়ে login করুন (`.env`-এ দেওয়া)
+3. নতুন Client তৈরি করুন — API Key পাবেন
+4. WordPress plugin-এ API Key বসান
+
+---
+
+## Troubleshooting
+
+**502 Bad Gateway?**
+```bash
+sudo supervisorctl status buykori-web
+sudo tail -20 /var/log/supervisor/buykori-web.err.log
+```
+
+**Database connection error?**
+```bash
+# .env-এ DATABASE_URL সঠিক আছে কিনা চেক করুন
+cd /var/www/buykori-adsync && source venv/bin/activate
+python -c "import asyncio; from app.database import engine; from sqlalchemy import text; asyncio.run(engine.connect())"
+```
+
+**Permission denied?**
+```bash
+sudo chown -R buykori:buykori /var/www/buykori-adsync
+```

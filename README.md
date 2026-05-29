@@ -36,6 +36,7 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your-secure-admin-password
 ADMIN_API_KEY=your-admin-api-key
 DATABASE_URL=sqlite+aiosqlite:///./test.db
+REDIS_URL=redis://localhost:6379/0  # optional locally, required for production health/stream ingest
 ENCRYPTION_KEY=your-32-byte-fernet-key
 ```
 *Note: You can generate a random 32-byte Fernet key with:*
@@ -49,7 +50,7 @@ Initialize and upgrade your database schema:
 # If using Alembic migrations
 alembic upgrade head
 
-# For initial schema creation in development (alternative)
+# For initial schema creation in development only (alternative)
 # Set ENABLE_CREATE_ALL=true in .env
 ```
 

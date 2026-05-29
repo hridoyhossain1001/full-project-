@@ -94,12 +94,12 @@ async def update_courier_settings(
     client.courier_auto_send = settings.courier_auto_send
     
     # Encrypt credentials if they are newly updated and not masked
-    if settings.pathao_secret_key and not settings.pathao_secret_key.startswith("•••"):
+    if settings.pathao_secret_key and not (settings.pathao_secret_key.startswith("•••") or "••••••••••••" in settings.pathao_secret_key):
         client.pathao_secret_key = encrypt_token(settings.pathao_secret_key.strip())
     elif settings.pathao_secret_key == "":
         client.pathao_secret_key = None
         
-    if settings.steadfast_secret_key and not settings.steadfast_secret_key.startswith("•••"):
+    if settings.steadfast_secret_key and not (settings.steadfast_secret_key.startswith("•••") or "••••••••••••" in settings.steadfast_secret_key):
         client.steadfast_secret_key = encrypt_token(settings.steadfast_secret_key.strip())
     elif settings.steadfast_secret_key == "":
         client.steadfast_secret_key = None
@@ -214,7 +214,8 @@ async def send_order_to_courier(
     )
     
     # Update pending event state (to show it has been processed and sent to courier)
-    pending_event.portal_state = "processing" # or 'confirmed'
+    pending_event.status = "courier_booked"
+    pending_event.portal_state = "processing"
     pending_event.is_confirmed = True
     
     db.add(courier_order)

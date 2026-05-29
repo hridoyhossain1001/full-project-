@@ -1,6 +1,0 @@
-{
-  "name": "CAPI Client Portal",
-  "description": "Enterprise Conversions API client panel to monitor and optimize server-side marketing pipelines across Meta, TikTok, and GA4.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

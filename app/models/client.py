@@ -42,6 +42,7 @@ class Client(Base):
     event_rules = Column(JSON, nullable=True)                      # Custom routing rules for events (JSON)
     resolved_suggestions = Column(JSON, nullable=True)
     dismissed_suggestions = Column(JSON, nullable=True)
+    portal_seen_state = Column(JSON, nullable=True)                # Client portal notification seen timestamps
     # ─── Courier Integration ─────────────────────────────────────────────
     pathao_api_key = Column(String, nullable=True)                 # Pathao Merchant API Key
     pathao_secret_key = Column(String, nullable=True)              # Pathao Secret (encrypted)

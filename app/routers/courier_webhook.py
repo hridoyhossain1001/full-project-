@@ -1,4 +1,6 @@
+import hmac
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, Request, HTTPException
@@ -21,6 +23,22 @@ from app.services.usage_service import check_and_reserve_usage
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+REQUIRE_COURIER_WEBHOOK_SECRET = os.getenv("REQUIRE_COURIER_WEBHOOK_SECRET", "true").lower() in ("1", "true", "yes")
+COURIER_WEBHOOK_SECRET = os.getenv("COURIER_WEBHOOK_SECRET", "")
+
+
+def _verify_courier_webhook_secret(request: Request) -> None:
+    if not REQUIRE_COURIER_WEBHOOK_SECRET:
+        return
+    provided = (
+        request.headers.get("x-courier-webhook-secret")
+        or request.headers.get("x-webhook-secret")
+        or request.query_params.get("secret")
+        or ""
+    )
+    if not COURIER_WEBHOOK_SECRET or not hmac.compare_digest(provided, COURIER_WEBHOOK_SECRET):
+        raise HTTPException(status_code=401, detail="Invalid courier webhook secret")
+
 # ─── Helper: Queue Refund event for worker delivery ──────────────────────────
 async def _queue_refund_event(
     client: CachedClient,
@@ -31,6 +49,7 @@ async def _queue_refund_event(
     Purchase event data ক্লোন করে event_name 'Refund'-এ পরিবর্তন করে outbox-এ পাঠায়।
     """
     event_dict = pending.event_data.copy()
+    event_dict.pop("raw_order_data", None)
     event_dict["event_name"] = "Refund"
     event_dict["event_time"] = int(datetime.now(timezone.utc).timestamp())
 
@@ -110,8 +129,9 @@ async def process_courier_status_change(
                 courier_order.purchase_event_sent = True
                 courier_order.delivered_at = datetime.now(timezone.utc)
                 pending_event.status = "confirmed"
-                pending_event.confirmed_at = datetime.now(timezone.utc)
+                pending_event.confirmed_at = datetime.now(timezone.utc)  # analytics-এর জন্য জরুরি
                 pending_event.portal_state = "confirmed"
+                pending_event.is_confirmed = True
             except Exception as e:
                 logger.error(f"Failed to queue auto Purchase event for delivered order {courier_order.order_id}: {e}")
                 
@@ -140,6 +160,7 @@ async def steadfast_webhook(request: Request, db: AsyncSession = Depends(get_db)
     """
     SteadFast Courier Webhook Endpoint.
     """
+    _verify_courier_webhook_secret(request)
     try:
         payload = await request.json()
     except Exception:
@@ -175,6 +196,7 @@ async def pathao_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Pathao Courier Webhook Endpoint.
     """
+    _verify_courier_webhook_secret(request)
     try:
         payload = await request.json()
     except Exception:

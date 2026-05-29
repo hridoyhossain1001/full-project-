@@ -4,7 +4,7 @@ import time
 import os
 
 API_KEY = os.getenv("CAPI_LOAD_TEST_API_KEY", "")
-URL = os.getenv("CAPI_LOAD_TEST_URL", "https://still-stream-48626-bb0ac4cda957.herokuapp.com/api/v1/events")
+URL = os.getenv("CAPI_LOAD_TEST_URL", "http://localhost:8000/api/v1/events")
 
 async def send_duplicate(client, event_id):
     payload = {

@@ -221,8 +221,7 @@ class BUYKORIGW_Auto_Updater
             return true;
         }
 
-        // Allow the canonical custom domain even if the client still has
-        // the old Heroku URL saved (server redirects to custom domain).
+        // Allow the canonical custom domain.
         $allowed_hosts = array(
             'buykori.app',
             'www.buykori.app',

@@ -111,7 +111,7 @@ Set production backend environment variables like:
 
 ```txt
 PRIMARY_DOMAIN=api.buykori.app
-ALLOWED_HOSTS=localhost,127.0.0.1,testserver,*.herokuapp.com,buykori.app,www.buykori.app,client.buykori.app,admin.buykori.app,api.buykori.app,track.buykori.app
+ALLOWED_HOSTS=localhost,127.0.0.1,testserver,buykori.app,www.buykori.app,client.buykori.app,admin.buykori.app,api.buykori.app,track.buykori.app
 ```
 
 The current CORS policy is intentionally open for tracker requests, while API security is enforced by API keys/signatures and per-client domain checks.

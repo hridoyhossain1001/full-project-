@@ -359,7 +359,7 @@ function buykorigw_on_order_status_change( $order_id ) {
         $order->update_meta_data( '_buykorigw_confirmed', 1 );
         $order->update_meta_data( '_buykorigw_confirmed_at', current_time( 'mysql' ) );
         $order->update_meta_data( '_buykorigw_confirm_status', 'confirmed' );
-        $order->add_order_note( '[Buykori AdSync] Purchase event confirmed and sent to ad platforms.' );
+        $order->add_order_note( '[Buykori AdSync] Order confirmed in AdSync. Purchase delivery follows the configured courier/deferred workflow.' );
         $order->save();
 
         if ( $settings['debug_mode'] ) {
@@ -655,7 +655,7 @@ function buykorigw_retry_confirm_handler( $args ) {
         buykorigw_update_order_meta( $order_id, '_buykorigw_confirmed', 1 );
         buykorigw_update_order_meta( $order_id, '_buykorigw_confirmed_at', current_time( 'mysql' ) );
         buykorigw_update_order_meta( $order_id, '_buykorigw_confirm_status', 'confirmed' );
-        buykorigw_add_order_note( $order_id, 'Purchase event confirmed and sent to ad platforms by retry.' );
+        buykorigw_add_order_note( $order_id, 'Order confirmed in AdSync by retry. Purchase delivery follows the configured courier/deferred workflow.' );
 
         if ( $settings['debug_mode'] ) {
             error_log( "[Buykori AdSync] ✅ Retry success for order #$order_id (attempt $retry_count)" );
@@ -913,7 +913,7 @@ function buykorigw_ajax_manual_confirm() {
         buykorigw_update_order_meta( $order_id, '_buykorigw_confirmed', 1 );
         buykorigw_update_order_meta( $order_id, '_buykorigw_confirmed_at', current_time( 'mysql' ) );
         buykorigw_update_order_meta( $order_id, '_buykorigw_confirm_status', 'confirmed' );
-        buykorigw_add_order_note( $order_id, 'Purchase event confirmed and sent to ad platforms manually.' );
+        buykorigw_add_order_note( $order_id, 'Order confirmed in AdSync manually. Purchase delivery follows the configured courier/deferred workflow.' );
         wp_send_json_success( 'Order confirmed!' );
     } else {
         wp_send_json_error( 'Confirm failed' );

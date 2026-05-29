@@ -511,6 +511,20 @@ function buykorigw_track_purchase( $order_id ) {
             'num_items'    => $num_items,
             'order_id'     => (string) $order_id,
         ),
+        'raw_order_data'   => array(
+            'recipient_name'    => trim( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() ),
+            'recipient_phone'   => $order->get_billing_phone(),
+            'recipient_address' => trim(
+                implode( ', ', array_filter( array(
+                    $order->get_shipping_address_1() ?: $order->get_billing_address_1(),
+                    $order->get_shipping_address_2() ?: $order->get_billing_address_2(),
+                    $order->get_shipping_city() ?: $order->get_billing_city(),
+                    $order->get_shipping_state() ?: $order->get_billing_state(),
+                    $order->get_shipping_postcode() ?: $order->get_billing_postcode(),
+                ) ) )
+            ),
+            'cod_amount'        => (float) $order->get_total(),
+        ),
     );
 
     if ( ! empty( $billing_email_domain ) ) {

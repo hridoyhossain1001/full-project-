@@ -4,8 +4,8 @@ load_dotenv()
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
 
-# Heroku দেয় DATABASE_URL যেটা postgres:// দিয়ে শুরু হয়
-# SQLAlchemy async-এর জন্য postgresql+asyncpg:// লাগে, তাই replace করছি
+# DATABASE_URL-এ postgres:// দিয়ে শুরু হলে আমরা postgresql+asyncpg:// তে convert করি
+# SQLAlchemy async driver-এর জন্য postgresql+asyncpg:// format প্রয়োজন
 raw_url = os.getenv("DATABASE_URL", "")
 if not raw_url:
     raise RuntimeError("⛔ DATABASE_URL environment variable is required!")

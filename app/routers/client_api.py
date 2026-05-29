@@ -8,6 +8,7 @@ from sqlalchemy import select, func, and_, update, desc
 
 from app.database import get_db
 from app.models.client import Client
+from app.models.courier_order import CourierOrder
 from app.models.event_log import EventLog
 from app.models.event_outbox import EventOutbox
 from app.models.pending_event import PendingEvent
@@ -68,6 +69,9 @@ class PasswordUpdateRequest(BaseModel):
     currentPassword: str
     newPassword: str
 
+class SidebarSeenRequest(BaseModel):
+    section: str
+
 
 ALLOWED_RULE_EVENTS = {
     "PageView",
@@ -85,6 +89,25 @@ ALLOWED_RULE_EVENTS = {
     "Search",
     "Refund",
 }
+
+SIDEBAR_SEEN_KEYS = {
+    "order_verification": "order_verification_seen_at",
+    "orders_delivery": "orders_delivery_seen_at",
+}
+
+ACTIVE_COURIER_STATUSES = ["pending", "picked", "in_transit", "processing", "booked", "shipped"]
+
+
+def _parse_seen_at(value: str | None) -> datetime:
+    if not value:
+        return datetime(1970, 1, 1, tzinfo=timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return datetime(1970, 1, 1, tzinfo=timezone.utc)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _validate_rules(rules: list[dict]) -> list[dict]:
@@ -106,6 +129,72 @@ def _validate_rules(rules: list[dict]) -> list[dict]:
             "ga4Enabled": bool(rule.get("ga4Enabled")),
         })
     return cleaned
+
+# --- Sidebar Notification State ---
+@router.get("/sidebar/status")
+async def get_sidebar_status(
+    client: Client = Depends(get_current_portal_client),
+    db: AsyncSession = Depends(get_db),
+):
+    seen_state = client.portal_seen_state if isinstance(client.portal_seen_state, dict) else {}
+    order_seen_at = _parse_seen_at(seen_state.get("order_verification_seen_at"))
+    delivery_seen_at = _parse_seen_at(seen_state.get("orders_delivery_seen_at"))
+
+    pending_total_r = await db.execute(
+        select(func.count(PendingEvent.id)).where(and_(
+            PendingEvent.client_id == client.id,
+            PendingEvent.status == "pending",
+        ))
+    )
+    pending_new_r = await db.execute(
+        select(func.count(PendingEvent.id)).where(and_(
+            PendingEvent.client_id == client.id,
+            PendingEvent.status == "pending",
+            PendingEvent.created_at > order_seen_at,
+        ))
+    )
+
+    delivery_total_r = await db.execute(
+        select(func.count(CourierOrder.id)).where(and_(
+            CourierOrder.client_id == client.id,
+            CourierOrder.courier_status.in_(ACTIVE_COURIER_STATUSES),
+        ))
+    )
+    delivery_new_r = await db.execute(
+        select(func.count(CourierOrder.id)).where(and_(
+            CourierOrder.client_id == client.id,
+            CourierOrder.courier_status.in_(ACTIVE_COURIER_STATUSES),
+            CourierOrder.created_at > delivery_seen_at,
+        ))
+    )
+
+    return {
+        "orderVerificationTotal": int(pending_total_r.scalar() or 0),
+        "orderVerificationNew": int(pending_new_r.scalar() or 0),
+        "ordersDeliveryTotal": int(delivery_total_r.scalar() or 0),
+        "ordersDeliveryNew": int(delivery_new_r.scalar() or 0),
+        "seenState": {
+            "orderVerificationSeenAt": seen_state.get("order_verification_seen_at"),
+            "ordersDeliverySeenAt": seen_state.get("orders_delivery_seen_at"),
+        },
+    }
+
+
+@router.post("/sidebar/mark-seen")
+async def mark_sidebar_seen(
+    payload: SidebarSeenRequest,
+    client: Client = Depends(get_current_portal_client),
+    db: AsyncSession = Depends(get_db),
+):
+    key = SIDEBAR_SEEN_KEYS.get(payload.section)
+    if not key:
+        raise HTTPException(status_code=400, detail="Invalid sidebar section.")
+
+    seen_state = dict(client.portal_seen_state or {})
+    seen_state[key] = datetime.now(timezone.utc).isoformat()
+    client.portal_seen_state = seen_state
+    await db.commit()
+    return {"success": True, "seenState": seen_state}
 
 # ─── Profile & Usage Stats ───────────────────────────────────────────────────
 @router.get("/profile")

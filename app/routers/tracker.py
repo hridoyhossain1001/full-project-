@@ -147,8 +147,8 @@ async def serve_tracker_js(
     # Validate API Key
     client = await _get_client_by_key(key, db)
 
-    # Gateway origin detect করো (ক্লায়েন্টের custom domain বা Heroku URL)
-    # Request যেই host-এ আসছে সেটাই ব্যবহার করবে
+    # Gateway origin detect করো — request যেই host-এ আসছে সেটাই ব্যবহার করবে
+    # Nginx X-Forwarded-Proto header থেকে scheme নেওয়া হচ্ছে
     scheme = request.headers.get("x-forwarded-proto", "https")
     host = request.headers.get("host", "localhost")
     gateway_origin = f"{scheme}://{host}"

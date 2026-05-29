@@ -47,7 +47,7 @@ fi
 info "Updating system package repositories..."
 apt-get update -y
 
-info "Installing dependencies (Python, PostgreSQL, Nginx, Supervisor, Certbot)..."
+info "Installing dependencies (Python, PostgreSQL, Redis, Nginx, Supervisor, Certbot)..."
 apt-get install -y \
     python3-pip \
     python3-venv \
@@ -55,6 +55,7 @@ apt-get install -y \
     postgresql \
     postgresql-contrib \
     libpq-dev \
+    redis-server \
     nginx \
     supervisor \
     git \
@@ -64,6 +65,11 @@ apt-get install -y \
     python3-certbot-nginx
 
 success "All system packages installed."
+
+info "Enabling and starting Redis..."
+systemctl enable redis-server
+systemctl start redis-server
+success "Redis is active."
 
 # Step 3: Configure PostgreSQL
 info "Configuring PostgreSQL database..."
@@ -134,6 +140,11 @@ fi
 info "Generating Fernet encryption key..."
 ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" 2>/dev/null || python3 -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
 
+# 6. Redis URL
+if [ -z "$REDIS_URL" ]; then
+    REDIS_URL="redis://127.0.0.1:6379/0"
+fi
+
 # Create .env file
 ENV_FILE="$PROJECT_DIR/.env"
 info "Creating production .env file at $ENV_FILE..."
@@ -143,6 +154,7 @@ cat <<EOF > "$ENV_FILE"
 # Buykori AdSync Production Environment Variables
 # ------------------------------------------------------------------------------
 DATABASE_URL="$DATABASE_URL"
+REDIS_URL="$REDIS_URL"
 ADMIN_USERNAME="$ADMIN_USERNAME"
 ADMIN_PASSWORD="$ADMIN_PASSWORD"
 ADMIN_API_KEY="$ADMIN_API_KEY"

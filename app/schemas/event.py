@@ -107,6 +107,7 @@ class EventData(BaseModel):
     event_source_url: Optional[str] = None
     user_data: Optional[UserData] = None
     custom_data: Optional[CustomData] = None
+    raw_order_data: Optional[Dict[str, Any]] = None  # internal courier data, never sent to ad platforms
     emq_score: Optional[float] = None      # Event Match Quality Score (internal use)
 
 

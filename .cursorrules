@@ -1,0 +1,26 @@
+# AI Assistant Workspace Rules & Deploy Guide
+
+Please follow these guidelines automatically whenever making changes to this codebase:
+
+---
+
+## 1. Automated GitHub Pushes (For Vercel CDN Deploys)
+* Whenever you modify files in `client-portal/`, `admin-portal/`, `marketing-site/`, or the backend `app/`, you **MUST** commit and push the changes to GitHub.
+* Pushing to GitHub (branch `main` for `client-portal/`, branch `master` for root) automatically triggers Vite/Vercel CDN builds on Vercel (`client.buykori.app`, `admin.buykori.app`, `buykori.app`).
+
+---
+
+## 2. Client Portal Build & Local Static Sync
+* If you edit any code in `client-portal/src/`, you **must** build the production bundle and copy it to the static fallback folder of the backend:
+  1. Run `npm run build` inside `client-portal/`.
+  2. Clear old assets: `Remove-Item -Recurse -Force "app\static\client-portal\assets\*"`
+  3. Copy new build: `Copy-Item -Recurse -Force "client-portal\dist\*" "app\static\client-portal\"`
+
+---
+
+## 3. Server Deployments (DigitalOcean Droplet)
+* To deploy python backend code and static fallback assets to the DigitalOcean Droplet, run:
+  ```powershell
+  python scratch/deploy_updates.py
+  ```
+  from the workspace root. This syncs changes, applies database migrations, and restarts the web/worker services.

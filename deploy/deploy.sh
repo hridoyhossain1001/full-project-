@@ -27,7 +27,7 @@ echo "🗄️ Running database migrations (Alembic)..."
 # Restart Supervisor processes
 echo "🔁 Reloading web and restarting worker services..."
 sudo supervisorctl signal HUP buykori-web
-sudo supervisorctl restart buykori-worker
+sudo supervisorctl restart buykori-worker:*
 
 # Check status
 echo "📊 Checking service status..."

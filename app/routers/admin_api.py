@@ -2,10 +2,7 @@ import os
 import secrets
 import logging
 import hmac
-import base64
-import json
 import time
-import hashlib
 from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,48 +57,19 @@ class AdminClientUpdate(BaseModel):
     test_event_code: str | None = None
     tiktok_test_event_code: str | None = None
 
-def base64url_encode(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).decode('utf-8').rstrip('=')
-
-def base64url_decode(data: str) -> bytes:
-    padding = '=' * (4 - (len(data) % 4))
-    return base64.urlsafe_b64decode(data + padding)
+import jwt as pyjwt
 
 def create_jwt(payload: dict, secret: str) -> str:
-    header = {"alg": "HS256", "typ": "JWT"}
-    header_json = json.dumps(header, separators=(',', ':')).encode('utf-8')
-    payload_json = json.dumps(payload, separators=(',', ':')).encode('utf-8')
-    
-    header_b64 = base64url_encode(header_json)
-    payload_b64 = base64url_encode(payload_json)
-    
-    signing_input = f"{header_b64}.{payload_b64}".encode('utf-8')
-    signature = hmac.new(secret.encode('utf-8'), signing_input, hashlib.sha256).digest()
-    signature_b64 = base64url_encode(signature)
-    
-    return f"{header_b64}.{payload_b64}.{signature_b64}"
+    """PyJWT দিয়ে HS256 JWT token তৈরি করো।"""
+    return pyjwt.encode(payload, secret, algorithm="HS256")
 
 def decode_jwt(token: str, secret: str) -> dict:
+    """PyJWT দিয়ে JWT token decode ও verify করো।"""
     try:
-        parts = token.split('.')
-        if len(parts) != 3:
-            raise ValueError("Invalid token format")
-        
-        header_b64, payload_b64, signature_b64 = parts
-        signing_input = f"{header_b64}.{payload_b64}".encode('utf-8')
-        expected_signature = hmac.new(secret.encode('utf-8'), signing_input, hashlib.sha256).digest()
-        expected_signature_b64 = base64url_encode(expected_signature)
-        
-        if not hmac.compare_digest(signature_b64, expected_signature_b64):
-            raise ValueError("Invalid signature")
-            
-        payload = json.loads(base64url_decode(payload_b64).decode('utf-8'))
-        
-        if "exp" in payload and payload["exp"] < time.time():
-            raise ValueError("Token expired")
-            
-        return payload
-    except Exception as e:
+        return pyjwt.decode(token, secret, algorithms=["HS256"])
+    except pyjwt.ExpiredSignatureError:
+        raise ValueError("Token expired")
+    except pyjwt.InvalidTokenError as e:
         raise ValueError(f"Token decoding failed: {e}")
 
 def verify_admin_api_key(
@@ -215,6 +183,7 @@ async def admin_api_clients(
     }
 
 @router.post("/admin/api/clients")
+@limiter.limit("10/minute")
 async def admin_api_create_client(
     payload: AdminClientCreate,
     request: Request,
@@ -259,6 +228,7 @@ async def admin_api_create_client(
     return {"status": "success", "client": client_to_api_dict(client)}
 
 @router.patch("/admin/api/clients/{client_id}")
+@limiter.limit("20/minute")
 async def admin_api_update_client(
     client_id: int,
     payload: AdminClientUpdate,
@@ -321,6 +291,7 @@ async def admin_api_get_client(
     return {"status": "success", "client": data}
 
 @router.post("/admin/api/clients/{client_id}/keys/rotate")
+@limiter.limit("10/minute")
 async def admin_api_rotate_key(
     client_id: int,
     request: Request,
@@ -352,6 +323,7 @@ async def admin_api_rotate_key(
     return {"status": "success", "key_type": key_type, "new_value": getattr(client, key_type)}
 
 @router.delete("/admin/api/clients/{client_id}")
+@limiter.limit("5/minute")
 async def admin_api_delete_client(
     client_id: int,
     request: Request,
