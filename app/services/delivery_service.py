@@ -8,6 +8,7 @@ from app.services.capi_service import send_to_facebook
 from app.services.ga4_service import send_to_ga4
 from app.services.tiktok_service import send_to_tiktok
 from app.services.webhook_service import send_webhook
+from app.utils.event_log_helpers import build_event_log_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -36,24 +37,28 @@ async def _log_secondary_failure(
 async def _log_secondary_success(
     client_id: int,
     channel: str,
-    event_names: str,
+    events: list[EventData],
     response_payload: object,
     ip_address: str | None,
 ) -> None:
-    """Record non-primary platform delivery without inflating analytics totals."""
+    """Record non-primary platform delivery while preserving per-event dedup keys."""
     try:
         async with AsyncSessionLocal() as db:
-            db.add(EventLog(
-                client_id=client_id,
-                event_name=f"{channel}:{event_names}"[:255],
-                event_count=0,
-                status="success",
-                fb_response=json.dumps({
-                    "channel": channel,
-                    "response": response_payload,
-                }, default=str)[:5000],
-                ip_address=ip_address,
-            ))
+            for event in events:
+                event_data = event.model_dump(exclude_none=True)
+                kwargs = build_event_log_kwargs(
+                    client_id,
+                    event_data,
+                    "success",
+                    ip_address,
+                    fb_response=json.dumps({
+                        "channel": channel,
+                        "response": response_payload,
+                    }, default=str)[:5000],
+                )
+                kwargs["event_name"] = f"{channel}:{event.event_name}"[:255]
+                kwargs["event_count"] = 0
+                db.add(EventLog(**kwargs))
             await db.commit()
     except Exception as log_error:
         logger.warning(f"Secondary success logging failed: {log_error}")
@@ -81,7 +86,7 @@ async def _send_tiktok_secondary(client, events: list[EventData], event_names: s
         await _log_secondary_success(
             client.id,
             "TikTok",
-            event_names,
+            events,
             tiktok_result,
             ip_address,
         )

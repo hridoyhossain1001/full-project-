@@ -239,9 +239,22 @@ function buykorigw_send_order_initiate_checkout_fallback( $order_or_id ) {
 
     $browser_ic_sent  = $order->get_meta( '_buykorigw_snapshot_buykorigw_ic_sent' );
     $browser_event_id = $order->get_meta( '_buykorigw_snapshot_buykorigw_ic_event_id' );
+    $current_ic_sent  = isset( $_COOKIE['_buykorigw_ic_sent'] ) ? sanitize_text_field( wp_unslash( $_COOKIE['_buykorigw_ic_sent'] ) ) : '';
+    $current_event_id = isset( $_COOKIE['_buykorigw_ic_event_id'] ) ? sanitize_text_field( wp_unslash( $_COOKIE['_buykorigw_ic_event_id'] ) ) : '';
+
+    if ( empty( $browser_event_id ) && ! empty( $current_event_id ) ) {
+        $browser_event_id = $current_event_id;
+    }
+
     if (
+        ! empty( $browser_event_id )
+        || (
         function_exists( 'buykorigw_recent_initiate_checkout_marker' )
-        && buykorigw_recent_initiate_checkout_marker( $browser_ic_sent )
+        && (
+            buykorigw_recent_initiate_checkout_marker( $browser_ic_sent )
+            || buykorigw_recent_initiate_checkout_marker( $current_ic_sent )
+        )
+        )
     ) {
         if ( ! empty( $settings['debug_mode'] ) ) {
             buykorigw_add_order_note( $order_id, 'InitiateCheckout browser marker found; skipping order-backed fallback to prevent duplicate telemetry.' );
