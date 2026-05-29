@@ -33,6 +33,36 @@ PLUGIN_DOWNLOAD_URL = os.getenv("PLUGIN_DOWNLOAD_URL", "")
 
 
 @router.get(
+    "/plugin/info",
+    summary="Get plugin release status",
+    description="Return public WordPress plugin release metadata for client portal setup/status screens.",
+)
+async def plugin_info(request: Request):
+    """Return public plugin release metadata without per-client signing."""
+    download_url = PLUGIN_DOWNLOAD_URL or _plugin_download_url(request)
+    package_sha256 = ""
+    package_size = 0
+    package_available = PLUGIN_ZIP_PATH.is_file()
+    if package_available:
+        package_bytes = PLUGIN_ZIP_PATH.read_bytes()
+        package_sha256 = hashlib.sha256(package_bytes).hexdigest()
+        package_size = len(package_bytes)
+
+    return JSONResponse(content={
+        "version": PLUGIN_VERSION,
+        "download_url": download_url,
+        "package_sha256": package_sha256,
+        "package_size": package_size,
+        "package_available": package_available,
+        "homepage": "https://buykori.app/",
+        "requires": "5.8",
+        "tested": "6.7",
+        "requires_php": "7.4",
+        "last_updated": "2026-05-25",
+    })
+
+
+@router.get(
     "/plugin/update-check",
     summary="Check for plugin updates",
     description="Return WordPress plugin update metadata for the built-in auto-updater.",
