@@ -4,7 +4,7 @@ Tags: facebook, capi, server-side tracking, woocommerce, pixel, ga4, tiktok
 Requires at least: 5.8
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.2.7
+Stable tag: 1.2.8
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -43,6 +43,11 @@ Buykori AdSync প্লাগইন আপনার WooCommerce স্টোর
 ক্যাশ-অন-ডেলিভারি (COD) অর্ডারের ক্ষেত্রে Purchase ইভেন্ট তখনই Facebook-এ পাঠানো হয় যখন আপনি অর্ডারটি "Completed" করেন। এতে ফেক অর্ডারের ডাটা Facebook-এ যায় না।
 
 == Changelog ==
+
+= 1.2.8 =
+* Shortened InitiateCheckout marker cookies to 20 minutes and clears them after Purchase/thank-you/new AddToCart
+* Uses product data as checkout payload fallback on one-page funnels when cart data is not available yet
+* Treats product fallback data as checkout-ready so checkout button clicks can fire InitiateCheckout
 
 = 1.2.7 =
 * Hardened InitiateCheckout fallback so order-created telemetry is sent even when the browser marker exists but the browser request was interrupted by redirect

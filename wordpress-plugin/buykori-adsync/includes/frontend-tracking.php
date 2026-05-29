@@ -404,6 +404,19 @@ function buykorigw_track_purchase( $order_id ) {
         return;
     }
 
+    // Clear InitiateCheckout cookies so the next checkout attempt will get a fresh event ID
+    if ( function_exists( 'buykorigw_first_party_cookie_options' ) ) {
+        $clear_options = buykorigw_first_party_cookie_options( -1 );
+        setcookie( '_buykorigw_ic_sent', '', $clear_options );
+        setcookie( '_buykorigw_ic_event_id', '', $clear_options );
+    }
+    if ( isset( $_COOKIE['_buykorigw_ic_sent'] ) ) {
+        unset( $_COOKIE['_buykorigw_ic_sent'] );
+    }
+    if ( isset( $_COOKIE['_buykorigw_ic_event_id'] ) ) {
+        unset( $_COOKIE['_buykorigw_ic_event_id'] );
+    }
+
     $order = wc_get_order( $order_id );
     if ( ! $order ) {
         return;

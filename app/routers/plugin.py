@@ -21,7 +21,7 @@ router = APIRouter(tags=["Plugin"])
 
 # Plugin version এই ফাইলে hardcoded — PLUGIN_VERSION env var দিয়ে override করা যায়।
 # Update করার সময় এখানে version change করুন এবং WP plugin-এও update করুন।
-PLUGIN_VERSION = "1.2.7"
+PLUGIN_VERSION = "1.2.8"
 PLUGIN_SOURCE_DIR = Path(__file__).resolve().parents[2] / "wordpress-plugin" / "buykori-adsync"
 PLUGIN_ZIP_PATH = Path(
     os.getenv(
@@ -108,6 +108,11 @@ def _plugin_update_response(download_url: str, package_sha256: str, signature: s
         "last_updated": "2026-05-29",
         "description": "Official Buykori AdSync WordPress plugin for server-side Facebook CAPI, TikTok, and GA4 tracking with one-page landing support and deferred purchase control.",
         "changelog": (
+            "<h4>v1.2.8</h4><ul>"
+            "<li>Shortened InitiateCheckout marker cookies to 20 minutes and clears them after Purchase, thank-you pages, and new AddToCart actions</li>"
+            "<li>Uses product data as checkout payload fallback on one-page funnels when cart data is not available yet</li>"
+            "<li>Treats product fallback data as checkout-ready so checkout button clicks can fire InitiateCheckout</li>"
+            "</ul>"
             "<h4>v1.2.7</h4><ul>"
             "<li>Hardened InitiateCheckout fallback so order-created telemetry is sent even when the browser marker exists but the browser request was interrupted by redirect</li>"
             "<li>Added checkout button intent selectors for CartFlows and custom checkout CTAs</li>"

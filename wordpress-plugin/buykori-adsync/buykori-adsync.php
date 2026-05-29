@@ -3,7 +3,7 @@
  * Plugin Name:       Buykori AdSync — Server-Side Tracking
  * Plugin URI:        https://buykori.app/
  * Description:       Server-Side Facebook CAPI, TikTok, and GA4 tracking for WooCommerce with one-page landing support, SHA-256 PII hashing, and deferred purchase control.
- * Version:           1.2.7
+ * Version:           1.2.8
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Buykori AdSync
@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) {
 }
 
 // ─── Plugin Constants ──────────────────────────────────────────────────────────
-define('BUYKORIGW_VERSION', '1.2.7');
+define('BUYKORIGW_VERSION', '1.2.8');
 define('BUYKORIGW_PLUGIN_FILE', __FILE__);
 define('BUYKORIGW_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('BUYKORIGW_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -309,11 +309,20 @@ function buykorigw_first_party_cookie_options($days = 90)
     return $options;
 }
 
+function buykorigw_first_party_cookie_options_seconds($seconds = 1200)
+{
+    $options = buykorigw_first_party_cookie_options(0);
+    $options['expires'] = time() + (int) $seconds;
+    return $options;
+}
+
 function buykorigw_mark_initiate_checkout_sent($event_id = '')
 {
     $timestamp = (string) time();
     $event_id  = sanitize_text_field((string) $event_id);
-    $options   = buykorigw_first_party_cookie_options(1);
+    
+    // Use 20 minutes (1200 seconds) lifespan instead of 1 day to prevent event ID reuse lockout
+    $options   = buykorigw_first_party_cookie_options_seconds(1200);
 
     setcookie('_buykorigw_ic_sent', $timestamp, $options);
     $_COOKIE['_buykorigw_ic_sent'] = $timestamp;

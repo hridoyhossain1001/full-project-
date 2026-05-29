@@ -276,11 +276,19 @@
     }
 
     function setCookieLocal(name, value, days) {
-        var d = new Date();
-        d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
-        var expires = "; expires=" + d.toUTCString();
+        var expires = "";
+        if (days !== undefined && days !== null) {
+            var d = new Date();
+            d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+            expires = "; expires=" + d.toUTCString();
+        }
         var domain = getCookieDomain();
         document.cookie = name + '=' + encodeURIComponent(value) + expires + '; path=/' + domain + '; SameSite=Lax';
+    }
+
+    function clearCheckoutMarkers() {
+        setCookieLocal('_buykorigw_ic_sent', '', -1);
+        setCookieLocal('_buykorigw_ic_event_id', '', -1);
     }
 
     function getCookieDomain() {
@@ -315,9 +323,9 @@
     }
 
     function markInitiateCheckoutSent(eventId) {
-        setCookieLocal('_buykorigw_ic_sent', String(Math.floor(Date.now() / 1000)), 1);
+        setCookieLocal('_buykorigw_ic_sent', String(Math.floor(Date.now() / 1000)), 0.014); // 20 minutes
         if (eventId) {
-            setCookieLocal('_buykorigw_ic_event_id', eventId, 1);
+            setCookieLocal('_buykorigw_ic_event_id', eventId, 0.014); // 20 minutes
         }
     }
 
@@ -614,6 +622,12 @@
         return getQueryParam('ttclid') || getCookie('_ttclid') || '';
     }
 
+    // Clear InitiateCheckout cookies on thank you page to prevent event ID reuse on next checkout
+    var currentPath = (window.location && window.location.pathname ? window.location.pathname : '').toLowerCase();
+    if (currentPath.indexOf('order-received') !== -1 || cfg.page_type === 'thankyou') {
+        clearCheckoutMarkers();
+    }
+
     // ─── 1. PageView ───────────────────────────────────────────────────
     if (cfg.events && cfg.events.pageview && eventOnce('PageView:' + currentPathKey(), 30)) {
         sendEvent('PageView', {});
@@ -832,6 +846,7 @@
                 }
 
                 if (!eventOnce('AddToCart:' + String(pid || 'unknown') + ':' + currentPathKey(), 2)) return;
+                clearCheckoutMarkers();
                 sendEvent('AddToCart', {
                     content_ids: pid ? [String(pid)] : [],
                     contents: pid ? [item] : [],
@@ -900,6 +915,7 @@
             }
 
             if (!eventOnce('AddToCart:' + String(productId) + ':' + currentPathKey(), 2)) return;
+            clearCheckoutMarkers();
             sendEvent('AddToCart', {
                 content_ids: [String(productId)],
                 contents: [item],
@@ -920,6 +936,7 @@
             var data = getProductDataFromElement(surface);
             if (!data) return;
             if (!eventOnce('AddToCartIntent:' + String(data.id) + ':' + currentPathKey(), 2)) return;
+            clearCheckoutMarkers();
             var payload = productPayloadFromData(data);
             if (payload) {
                 payload.trigger_reason = 'landing_cta_click';
@@ -931,13 +948,46 @@
     // ─── 4. InitiateCheckout ───────────────────────────────────────────
     function checkoutPayload(reason) {
         var checkoutData = cfg.cart || {};
+        var value = parseFloat(checkoutData.value || 0);
+        var contents = checkoutData.contents || [];
+        var contentIds = checkoutData.content_ids || [];
+        var numItems = parseInt(checkoutData.num_items || 0, 10);
+
+        if (value === 0 && cfg.product) {
+            var contentIdFormat = cfg.content_id_format || 'id';
+            var productId = (contentIdFormat === 'sku' && cfg.product.sku) ? cfg.product.sku : String(cfg.product.id);
+            var productPrice = parseFloat(cfg.product.price || 0);
+
+            var variationInfo = getSelectedVariationInfo();
+            if (variationInfo) {
+                productId = (contentIdFormat === 'sku' && variationInfo.sku) ? variationInfo.sku : String(variationInfo.id);
+                if (variationInfo.price !== null) {
+                    productPrice = variationInfo.price;
+                }
+            }
+
+            contentIds = [productId];
+            contents = [{
+                id: productId,
+                content_id: productId,
+                content_type: 'product',
+                content_name: cfg.product.name,
+                content_category: cfg.product.category || '',
+                quantity: 1,
+                item_price: productPrice,
+                price: productPrice
+            }];
+            value = productPrice;
+            numItems = 1;
+        }
+
         return {
-            content_ids: checkoutData.content_ids || [],
-            contents: checkoutData.contents || [],
+            content_ids: contentIds,
+            contents: contents,
             content_type: 'product',
-            value: checkoutData.value || 0,
-            currency: checkoutData.currency || 'BDT',
-            num_items: checkoutData.num_items || 0,
+            value: value,
+            currency: checkoutData.currency || (cfg.product ? cfg.product.currency : 'BDT'),
+            num_items: numItems,
             trigger_reason: reason || ''
         };
     }
@@ -962,6 +1012,7 @@
         if (parseInt(checkoutData.num_items || 0, 10) > 0) return true;
         if (checkoutData.content_ids && checkoutData.content_ids.length) return true;
         if (checkoutData.contents && checkoutData.contents.length) return true;
+        if (cfg.product && parseFloat(cfg.product.price || 0) > 0) return true;
         return isCheckoutFlowPage();
     }
 
