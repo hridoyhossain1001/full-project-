@@ -105,6 +105,18 @@ class CourierServiceException(Exception):
 
 class CourierService:
 
+    @staticmethod
+    def normalize_bd_phone(phone: str) -> str:
+        """Normalize Bangladeshi phone numbers to Pathao's local 01XXXXXXXXX format."""
+        digits = re.sub(r"\D+", "", str(phone or ""))
+        if digits.startswith("880") and len(digits) == 13:
+            return "0" + digits[3:]
+        if digits.startswith("88") and len(digits) == 13:
+            return digits[2:]
+        if digits.startswith("1") and len(digits) == 10:
+            return "0" + digits
+        return digits
+
     # ─── Pathao Auth ──────────────────────────────────────────────────────────
 
     @staticmethod
@@ -386,6 +398,7 @@ class CourierService:
         Pathao Courier-এ অর্ডার প্লেস করা।
         Address থেকে city/zone/area dynamically resolve করে — সারা বাংলাদেশ support।
         """
+        recipient_phone = cls.normalize_bd_phone(recipient_phone)
         token = await cls.get_pathao_token(client_id, client_secret, email, password)
         if not token:
             raise CourierServiceException("Failed to authenticate with Pathao API.")
