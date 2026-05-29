@@ -178,6 +178,16 @@ sudo supervisorctl restart buykori-web buykori-worker
 bash deploy/deploy.sh
 ```
 
+Local workspace theke fast hotfix deploy korte changed-file helper chalan:
+
+```powershell
+$env:DO_SSH_PASSWORD="your-droplet-password"
+python deploy\changed_deploy.py --base origin/main
+Remove-Item Env:\DO_SSH_PASSWORD
+```
+
+Use `--skip-migrations` or `--skip-restart` only when you are sure that step is not needed.
+
 ---
 
 ## দৈনন্দিন ব্যবস্থাপনা
