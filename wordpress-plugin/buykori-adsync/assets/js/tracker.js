@@ -622,9 +622,21 @@
         return getQueryParam('ttclid') || getCookie('_ttclid') || '';
     }
 
-    // Clear InitiateCheckout cookies on thank you page to prevent event ID reuse on next checkout
     var currentPath = (window.location && window.location.pathname ? window.location.pathname : '').toLowerCase();
-    if (currentPath.indexOf('order-received') !== -1 || cfg.page_type === 'thankyou') {
+
+    function isThankYouFlowPage() {
+        var search = (window.location && window.location.search ? window.location.search : '').toLowerCase();
+        return !!(
+            cfg.page_type === 'thankyou' ||
+            currentPath.indexOf('order-received') !== -1 ||
+            currentPath.indexOf('thank-you') !== -1 ||
+            search.indexOf('wcf-order=') !== -1 ||
+            search.indexOf('wcf-key=') !== -1
+        );
+    }
+
+    // Clear InitiateCheckout cookies on thank you pages to prevent event ID reuse on next checkout.
+    if (isThankYouFlowPage()) {
         clearCheckoutMarkers();
     }
 
@@ -995,6 +1007,7 @@
     var initiateCheckoutSent = false;
     function sendInitiateCheckoutOnce(reason, synchronous) {
         if (!cfg.events || !cfg.events.checkout) return;
+        if (isThankYouFlowPage()) return;
         if (initiateCheckoutSent) return;
         initiateCheckoutSent = true;
         sendEvent('InitiateCheckout', checkoutPayload(reason), !!synchronous);
@@ -1018,6 +1031,7 @@
 
     function sendInitiateCheckoutOnSurface(reason) {
         if (isOnePageMode()) return;
+        if (isThankYouFlowPage()) return;
         if (!hasCheckoutSurface()) return;
         sendInitiateCheckoutWhenReady(reason || 'checkout_surface_ready', hasCheckoutCartData());
     }
@@ -1116,9 +1130,10 @@
     }
 
     function isCheckoutFlowPage() {
+        if (isThankYouFlowPage()) return false;
         if (cfg.page_type === 'checkout') return true;
         var path = (window.location && window.location.pathname ? window.location.pathname : '').toLowerCase();
-        if (path.indexOf('checkout') !== -1 && !path.match(/order-received|order-pay/)) return true;
+        if (path.indexOf('checkout') !== -1 && !path.match(/order-received|order-pay|thank-you/)) return true;
         return hasCheckoutSurface();
     }
 
