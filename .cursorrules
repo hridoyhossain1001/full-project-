@@ -25,3 +25,13 @@ Please follow these guidelines automatically whenever making changes to this cod
   ```
   from the workspace root. This syncs changes, applies PostgreSQL migrations, and restarts the web/worker services. 
 * Do **NOT** assume pushing to the root `full-project-` repository deploys backend changes. Backend deployment is strictly done via this command.
+
+---
+
+## 4. ⛔ STRICT RULE — Do NOT Push `client-portal/` Source to Main Backup Repo
+* The main backup repository (`just-demo-file-` / `full-project-`) must **NEVER** receive raw source code from `client-portal/src/`, `admin-portal/`, or `marketing-site/` unless the user **explicitly** says: **"push to the backup repo"**.
+* When client-portal code changes, push **only** to:
+  - `buykori-client-portal` repo (for Vercel auto-deploy via `git push` inside `client-portal/`)
+  - DigitalOcean (for static fallback via `python scratch/deploy_updates.py`)
+* The root repo push (`just-demo-file-`) is **only** for backend files: `app/`, `migrations/`, `scripts/`, `wordpress-plugin/` etc.
+* **Never** auto-push `client-portal/` source to the backup root repo without explicit user instruction.

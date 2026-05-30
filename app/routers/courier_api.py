@@ -67,6 +67,7 @@ class CourierOrderResponse(BaseModel):
     delivery_charge: float
     created_at: str
     purchase_event_sent: bool
+    products: Optional[list] = None
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
 
@@ -292,16 +293,17 @@ async def get_courier_orders(
     offset: int = Query(0, ge=0),
 ):
     result = await db.execute(
-        select(CourierOrder)
+        select(CourierOrder, PendingEvent.products)
+        .outerjoin(PendingEvent, CourierOrder.pending_event_id == PendingEvent.id)
         .where(CourierOrder.client_id == client.id)
         .order_by(desc(CourierOrder.created_at))
         .offset(offset)
         .limit(limit)
     )
-    orders = result.scalars().all()
+    rows = result.all()
     
     response = []
-    for order in orders:
+    for order, products in rows:
         response.append(CourierOrderResponse(
             id=order.id,
             order_id=order.order_id,
@@ -315,7 +317,8 @@ async def get_courier_orders(
             cod_amount=order.cod_amount,
             delivery_charge=order.delivery_charge,
             created_at=order.created_at.isoformat(),
-            purchase_event_sent=order.purchase_event_sent
+            purchase_event_sent=order.purchase_event_sent,
+            products=products
         ))
     return response
 
