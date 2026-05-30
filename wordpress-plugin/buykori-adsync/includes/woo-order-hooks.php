@@ -155,10 +155,15 @@ function buykorigw_order_contents_payload( $order ) {
 
         $content_ids[] = $final_id;
 
+        // Product name — $item->get_name() returns the product title from WooCommerce
+        $product_name = $item->get_name();
+
         $content_item = array(
             'id'           => $final_id,
             'content_id'   => $final_id,
             'content_type' => 'product',
+            'title'        => $product_name,  // Product name — portal এ দেখাবে
+            'name'         => $product_name,  // Fallback key
             'quantity'     => $quantity,
             'item_price'   => (float) ( $item->get_total() / $quantity ),
         );
