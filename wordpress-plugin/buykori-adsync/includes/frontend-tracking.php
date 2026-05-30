@@ -482,10 +482,18 @@ function buykorigw_track_purchase( $order_id ) {
         }
 
         $content_ids[] = $final_id;
+
+        // Product name — $item->get_name() returns the product title from WooCommerce
+        $product_name = $item->get_name();
+
         $contents[] = array(
-            'id'       => $final_id,
-            'quantity' => $item->get_quantity(),
-            'item_price' => (float) ( $item->get_total() / max( $item->get_quantity(), 1 ) ),
+            'id'           => $final_id,
+            'content_id'   => $final_id,
+            'content_type' => 'product',
+            'title'        => $product_name,  // Product name — portal এ দেখাবে
+            'name'         => $product_name,  // Fallback key
+            'quantity'     => $item->get_quantity(),
+            'item_price'   => (float) ( $item->get_total() / max( $item->get_quantity(), 1 ) ),
         );
         $num_items += $item->get_quantity();
     }
