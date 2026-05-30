@@ -1127,12 +1127,31 @@ async def get_deferred_purchases(
         if isinstance(contents, list):
             for item in contents:
                 if isinstance(item, dict):
+                    # Try title first, then name, avoid showing bare numeric IDs
+                    raw_name = item.get("title") or item.get("name") or item.get("product_name") or ""
+                    item_id = str(item.get("id") or "")
+                    # If name is blank or looks like a numeric ID, mark as unknown
+                    display_name = raw_name if raw_name and raw_name != item_id else f"Product #{item_id}" if item_id else "Unknown Product"
                     products.append({
-                        "name": str(item.get("title") or item.get("name") or item.get("id") or "Product"),
+                        "name": display_name,
                         "quantity": int(item.get("quantity") or item.get("qty") or 1),
                         "price": float(item.get("item_price") or item.get("price") or 0),
                     })
-        # Fallback: if no contents but num_items > 0, create a generic entry
+        # Fallback: check raw_order_data for line_items (WooCommerce order data)
+        if not products and raw_order_data:
+            line_items = raw_order_data.get("line_items") or raw_order_data.get("products") or []
+            if isinstance(line_items, list):
+                for item in line_items:
+                    if isinstance(item, dict):
+                        raw_name = item.get("name") or item.get("title") or item.get("product_name") or ""
+                        item_id = str(item.get("product_id") or item.get("id") or "")
+                        display_name = raw_name if raw_name else f"Product #{item_id}" if item_id else "Unknown Product"
+                        products.append({
+                            "name": display_name,
+                            "quantity": int(item.get("quantity") or 1),
+                            "price": float(item.get("subtotal") or item.get("price") or 0),
+                        })
+        # Last fallback: num_items generic entry
         if not products and custom_data.get("num_items"):
             products.append({
                 "name": "Product (details not available)",
