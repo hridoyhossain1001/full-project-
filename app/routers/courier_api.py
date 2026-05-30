@@ -318,3 +318,123 @@ async def get_courier_orders(
             purchase_event_sent=order.purchase_event_sent
         ))
     return response
+
+
+# ─── Cancel Courier Order ────────────────────────────────────────────────────
+
+@router.post("/courier/cancel/{order_db_id}")
+async def cancel_courier_order(
+    order_db_id: int,
+    client: Client = Depends(get_current_portal_client),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Pathao বা SteadFast-এ পাঠানো order cancel করা।
+    - শুধুমাত্র 'pending' বা 'in_transit' status-এর orders cancel করা যাবে।
+    - Pathao: API call করে cancel, SteadFast: local-only cancel।
+    - Cancel হলে PendingEvent-এর status 'cancelled'-এ আপডেট হবে।
+    """
+    # Courier order খোঁজা
+    result = await db.execute(
+        select(CourierOrder).where(
+            (CourierOrder.id == order_db_id) & (CourierOrder.client_id == client.id)
+        )
+    )
+    courier_order = result.scalar_one_or_none()
+    if not courier_order:
+        raise HTTPException(status_code=404, detail="Courier order not found.")
+
+    # Already cancelled/delivered check
+    current_status = (courier_order.courier_status or "").lower()
+    if current_status in ("cancelled", "delivered", "returned"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Order cannot be cancelled — current status is '{current_status}'."
+        )
+
+    cancel_result: dict = {}
+    local_only = False
+
+    if courier_order.courier_provider == "pathao":
+        # Pathao credentials দিয়ে cancel call
+        if not client.pathao_api_key or not client.pathao_secret_key:
+            raise HTTPException(status_code=400, detail="Pathao API credentials are not configured.")
+        try:
+            client_id_str, email = client.pathao_api_key.split("|", 1)
+            decrypted = decrypt_token(client.pathao_secret_key)
+            client_secret, password = decrypted.split("|", 1)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Pathao credentials format incorrect.")
+
+        consignment_id = courier_order.courier_order_id or courier_order.courier_tracking_id
+        if not consignment_id:
+            raise HTTPException(status_code=400, detail="Courier order ID not found for this order.")
+
+        cancel_result = await CourierService.cancel_pathao_order(
+            client_id=client_id_str,
+            client_secret=client_secret,
+            email=email,
+            password=password,
+            consignment_id=consignment_id,
+        )
+        local_only = cancel_result.get("local_only", False)
+
+        if not cancel_result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Pathao cancel failed: {cancel_result.get('error', 'Unknown error')}"
+            )
+
+    elif courier_order.courier_provider == "steadfast":
+        # SteadFast: no cancel API, local-only
+        tracking_code = courier_order.courier_tracking_id or courier_order.courier_order_id or ""
+        api_key = client.steadfast_api_key or ""
+        secret_key = decrypt_token(client.steadfast_secret_key) if client.steadfast_secret_key else ""
+
+        cancel_result = await CourierService.cancel_steadfast_order(
+            api_key=api_key,
+            secret_key=secret_key,
+            tracking_code=tracking_code,
+        )
+        local_only = cancel_result.get("local_only", True)
+
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported courier provider.")
+
+    # DB update — courier order status cancel করা
+    courier_order.courier_status = "cancelled"
+    history = courier_order.status_history or []
+    if not isinstance(history, list):
+        history = []
+    history.append({
+        "status": "cancelled",
+        "raw_status": "cancelled_by_merchant",
+        "time": datetime.now(timezone.utc).isoformat(),
+        "local_only": local_only,
+    })
+    courier_order.status_history = history
+    db.add(courier_order)
+
+    # PendingEvent status update
+    if courier_order.pending_event_id:
+        from app.models.pending_event import PendingEvent
+        pe_result = await db.execute(
+            select(PendingEvent).where(PendingEvent.id == courier_order.pending_event_id)
+        )
+        pending_event = pe_result.scalar_one_or_none()
+        if pending_event:
+            pending_event.status = "cancelled"
+            pending_event.portal_state = "cancelled"
+            db.add(pending_event)
+
+    await db.commit()
+
+    msg = cancel_result.get("message", f"Order cancelled successfully from {courier_order.courier_provider.capitalize()}.")
+    return {
+        "success": True,
+        "message": msg,
+        "local_only": local_only,
+        "order_id": courier_order.order_id,
+        "courier_provider": courier_order.courier_provider,
+    }
+

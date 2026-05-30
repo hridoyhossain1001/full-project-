@@ -575,6 +575,90 @@ class CourierService:
             logger.error(f"Failed to check Pathao status: {e}")
             return None
 
+    # ─── Cancel Order: Pathao ─────────────────────────────────────────────────
+
+    @classmethod
+    async def cancel_pathao_order(
+        cls,
+        client_id: str,
+        client_secret: str,
+        email: str,
+        password: str,
+        consignment_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Pathao-তে Pending/Pickable অর্ডার cancel করা।
+        Pathao API: POST /aladdin/api/v1/orders/cancel
+        Body: { "consignment_id": "..." }
+        শুধুমাত্র 'Pending' বা 'Pickup Requested' state-এর order cancel করা যায়।
+        """
+        token = await cls.get_pathao_token(client_id, client_secret, email, password)
+        if not token:
+            return {"success": False, "error": "Failed to authenticate with Pathao API."}
+
+        url = f"{PATHAO_BASE_URL}/aladdin/api/v1/orders/cancel"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        payload = {"consignment_id": consignment_id}
+
+        http = await get_http_client()
+        try:
+            response = await http.post(url, json=payload, headers=headers)
+            if response.status_code in (200, 201):
+                data = response.json()
+                logger.info(f"Pathao order {consignment_id} cancelled successfully: {data}")
+                return {"success": True, "raw_response": data}
+            else:
+                err_text = response.text
+                logger.error(
+                    f"Pathao cancel failed for {consignment_id}: "
+                    f"{response.status_code} - {err_text}"
+                )
+                # Pathao error message parse করার চেষ্টা
+                try:
+                    err_data = response.json()
+                    err_msg = (
+                        err_data.get("message")
+                        or err_data.get("error")
+                        or err_text
+                    )
+                except Exception:
+                    err_msg = err_text
+                return {"success": False, "error": err_msg, "status_code": response.status_code}
+        except Exception as e:
+            logger.error(f"Exception during Pathao cancel for {consignment_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    @classmethod
+    async def cancel_steadfast_order(
+        cls,
+        api_key: str,
+        secret_key: str,
+        tracking_code: str,
+    ) -> Dict[str, Any]:
+        """
+        SteadFast Courier-এ order cancel।
+        SteadFast-এর public API-তে cancel endpoint নেই।
+        শুধু local DB update হবে, courier-side cancel-এর জন্য
+        SteadFast merchant panel-এ manually করতে হবে।
+        """
+        logger.info(
+            f"SteadFast does not support API-level cancel. "
+            f"Tracking {tracking_code} marked cancelled locally only."
+        )
+        return {
+            "success": True,
+            "local_only": True,
+            "message": (
+                "SteadFast does not support API cancellation. "
+                "Order has been marked as cancelled locally. "
+                "Please cancel manually from the SteadFast merchant panel if needed."
+            ),
+        }
+
     # ─── Status Mapper ────────────────────────────────────────────────────────
 
     @staticmethod
