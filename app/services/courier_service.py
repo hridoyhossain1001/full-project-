@@ -379,6 +379,46 @@ class CourierService:
     # ─── Send Order to Pathao ─────────────────────────────────────────────────
 
     @classmethod
+    async def get_pathao_stores(
+        cls,
+        client_id: str,
+        client_secret: str,
+        email: str,
+        password: str,
+    ) -> list:
+        """
+        Pathao Merchant-এর সব registered store fetch করে।
+        API: GET /aladdin/api/v1/stores
+        """
+        token = await cls.get_pathao_token(client_id, client_secret, email, password)
+        if not token:
+            logger.error("Failed to authenticate with Pathao API for store fetching.")
+            return []
+
+        url = f"{PATHAO_BASE_URL}/aladdin/api/v1/stores"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        }
+        http = await get_http_client()
+        try:
+            resp = await http.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                store_data = data.get("data", {})
+                if isinstance(store_data, dict):
+                    return store_data.get("data", []) or []
+                elif isinstance(store_data, list):
+                    return store_data
+                return []
+            else:
+                logger.warning(f"Pathao store-list failed: {resp.status_code} - {resp.text}")
+                return []
+        except Exception as e:
+            logger.error(f"Pathao store-list exception: {e}")
+            return []
+
+    @classmethod
     async def send_to_pathao(
         cls,
         client_id: str,

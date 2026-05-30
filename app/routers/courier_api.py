@@ -52,6 +52,9 @@ class SendToCourierRequest(BaseModel):
     recipient_phone: str
     recipient_address: str
     cod_amount: float
+    store_id: Optional[int] = None
+    item_weight: Optional[float] = 0.5
+    item_quantity: Optional[int] = 1
 
 class CourierOrderResponse(BaseModel):
     id: int
@@ -218,8 +221,12 @@ async def send_order_to_courier(
         # pathao_api_key = "client_id|email"
         # pathao_secret_key = "client_secret|password" (encrypted)
         # pathao_store_id = store_id
-        if not client.pathao_api_key or not client.pathao_secret_key or not client.pathao_store_id:
+        if not client.pathao_api_key or not client.pathao_secret_key:
             raise HTTPException(status_code=400, detail="Pathao API credentials are not configured.")
+            
+        store_id_to_use = str(req.store_id) if req.store_id is not None else client.pathao_store_id
+        if not store_id_to_use:
+            raise HTTPException(status_code=400, detail="Pathao Store ID is not configured.")
             
         try:
             client_id, email = client.pathao_api_key.split("|", 1)
@@ -231,17 +238,22 @@ async def send_order_to_courier(
                 detail="Pathao credentials format incorrect. Expected client_id|email and client_secret|password."
             )
             
+        weight_to_use = req.item_weight if req.item_weight is not None else 0.5
+        qty_to_use = req.item_quantity if req.item_quantity is not None else 1
+            
         result = await CourierService.send_to_pathao(
             client_id=client_id,
             client_secret=client_secret,
             email=email,
             password=password,
-            store_id=client.pathao_store_id,
+            store_id=store_id_to_use,
             recipient_name=req.recipient_name,
             recipient_phone=req.recipient_phone,
             recipient_address=req.recipient_address,
             cod_amount=req.cod_amount,
-            merchant_order_id=pending_event.order_id
+            merchant_order_id=pending_event.order_id,
+            item_quantity=qty_to_use,
+            item_weight=weight_to_use
         )
         
     else:
@@ -440,4 +452,33 @@ async def cancel_courier_order(
         "order_id": courier_order.order_id,
         "courier_provider": courier_order.courier_provider,
     }
+
+
+@router.get("/courier/pathao/stores")
+async def get_pathao_stores(
+    client: Client = Depends(get_current_portal_client),
+):
+    if not client.pathao_api_key or not client.pathao_secret_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Pathao API credentials are not configured. Please set them in Settings."
+        )
+
+    try:
+        client_id, email = client.pathao_api_key.split("|", 1)
+        decrypted_secret_pass = decrypt_token(client.pathao_secret_key)
+        client_secret, password = decrypted_secret_pass.split("|", 1)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Pathao credentials format incorrect. Expected client_id|email and client_secret|password."
+        )
+
+    stores = await CourierService.get_pathao_stores(
+        client_id=client_id,
+        client_secret=client_secret,
+        email=email,
+        password=password
+    )
+    return stores
 
