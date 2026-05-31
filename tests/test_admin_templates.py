@@ -282,6 +282,7 @@ async def test_client_signup_form_creates_email_user():
             "business_name": "New Signup Store",
             "email": "new-owner@example.com",
             "password": "strong-password-123",
+            "confirm_password": "strong-password-123",
             "domain": "example.com",
         },
         follow_redirects=False,
@@ -303,7 +304,7 @@ async def test_marketing_home_render():
     response = client.get("/")
     assert response.status_code == 200
     assert "Buykori AdSync" in response.text
-    assert "Optimize Your" in response.text
+    assert "Grow Smarter" in response.text
 
 
 # ─── PLUGIN DOWNLOAD TESTS ───────────────────────────────────────────────────

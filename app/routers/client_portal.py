@@ -150,6 +150,7 @@ async def client_signup_form(
     business_name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
+    confirm_password: str = Form(...),
     domain: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
@@ -157,6 +158,8 @@ async def client_signup_form(
         try:
             clean_email = _validate_email(email)
             _validate_password(password)
+            if password != confirm_password:
+                raise HTTPException(status_code=400, detail="Passwords do not match.")
             clean_full_name = _clean_name(full_name, "Full name")
             clean_business_name = _clean_name(business_name, "Business name")
             clean_domain = _clean_domain(domain)

@@ -1,1142 +1,1816 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Buykori AdSync - Server-Side Ads Tracking</title>
-  <meta name="description" content="Buykori AdSync sends cleaner WooCommerce server-side events to Meta CAPI, TikTok Events API and GA4." />
+  <title>Buykori AdSync - Tracking and Order Operations</title>
+  <meta name="description" content="Buykori AdSync combines WooCommerce server-side tracking, COD purchase control and courier order management in one dashboard." />
+  <script>
+    (function() {
+      const t = localStorage.getItem('bk_theme') || 'dark';
+      if (t === 'dark') document.documentElement.classList.add('dark');
+      else document.documentElement.classList.remove('dark');
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Outfit:wght@700;800&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
+    :root {
+      --bg-gradient: radial-gradient(at 0% 0%, hsla(242,100%,90%,1) 0px, transparent 50%),
+                     radial-gradient(at 100% 0%, hsla(168,100%,88%,1) 0px, transparent 50%),
+                     radial-gradient(at 100% 100%, hsla(285,100%,91%,1) 0px, transparent 50%),
+                     radial-gradient(at 0% 100%, hsla(202,100%,88%,1) 0px, transparent 50%);
+      --bg-color: #f0f4fd;
+      --text-main: #0f172a;
+      --text-muted: #475569;
+      --text-subtle: #475569; /* slate-600 instead of slate-500 for WCAG AA */
+      --card-bg: rgba(255,255,255,0.65);
+      --card-border: rgba(255,255,255,0.72);
+      --card-shadow: 0 12px 40px rgba(31,38,135,0.07);
+      --input-bg: rgba(255,255,255,0.55);
+      --input-border: rgba(255,255,255,0.8);
+      --primary: #4f46e5; /* Indigo 600 for contrast >= 4.5:1 on #f0f4fd */
+      --primary-hover: #3730a3; /* Indigo 800 for high-contrast active states */
+      --primary-rgb: 79,70,229;
+      --accent: #7c3aed; /* Purple 600 for contrast >= 4.5:1 */
+      --success: #047857; /* Emerald 700 for high-contrast success state */
+      --danger: #b91c1c; /* Red 700 for high-contrast error state */
+      --nav-bg: rgba(255,255,255,0.45);
+      --nav-border: rgba(255,255,255,0.6);
+    }
+    .dark {
+      --bg-gradient: radial-gradient(at 0% 0%, hsla(242,50%,12%,1) 0px, transparent 50%),
+                     radial-gradient(at 100% 0%, hsla(168,50%,10%,1) 0px, transparent 50%),
+                     radial-gradient(at 100% 100%, hsla(285,40%,12%,1) 0px, transparent 50%),
+                     radial-gradient(at 0% 100%, hsla(202,60%,11%,1) 0px, transparent 50%);
+      --bg-color: #0b1329;
+      --text-main: #f8fafc;
+      --text-muted: #cbd5e1;
+      --text-subtle: #94a3b8;
+      --card-bg: rgba(15,23,42,0.65);
+      --card-border: rgba(255,255,255,0.09);
+      --card-shadow: 0 16px 48px rgba(0,0,0,0.4);
+      --input-bg: rgba(15,23,42,0.5);
+      --input-border: rgba(255,255,255,0.08);
+      --primary: #818cf8;
+      --primary-hover: #6366f1;
+      --primary-rgb: 129,140,248;
+      --accent: #a78bfa;
+      --success: #34d399;
+      --danger: #f87171;
+      --nav-bg: rgba(15,23,42,0.52);
+      --nav-border: rgba(255,255,255,0.07);
+    }
 
-    *{box-sizing:border-box}
-    html{scroll-behavior:smooth}
-    body{
-      margin:0;
-      min-width:320px;
-      background-color: #0b1329;
-      background-image: 
-        radial-gradient(at 0% 0%, hsla(242,50%,15%,1) 0px, transparent 50%),
-        radial-gradient(at 100% 0%, hsla(168,50%,12%,1) 0px, transparent 50%),
-        radial-gradient(at 100% 100%, hsla(285,40%,15%,1) 0px, transparent 50%),
-        radial-gradient(at 0% 100%, hsla(202,60%,14%,1) 0px, transparent 50%);
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+      background-color: var(--bg-color);
+      background-image: var(--bg-gradient);
       background-attachment: fixed;
-      color:#e2eaf8;
-      font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
+      color: var(--text-main);
+      min-height: 100vh;
+      overflow-x: hidden;
+      transition: background-color 0.3s ease, color 0.3s ease;
     }
-    a{text-decoration:none;color:inherit}
-    button,input{font:inherit}
-    button{font-family:inherit}
+    a { text-decoration: none; color: inherit; }
+    button, input { font: inherit; }
 
-    /* Scrollbars matching dashboard styling */
-    ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-    ::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: rgba(255,139,69,0.25);
-      border-radius: 99px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-      background: rgba(255,139,69,0.45);
-    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(var(--primary-rgb),0.25); border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(var(--primary-rgb),0.45); }
 
-    .bk-page{
-      min-height:100vh;
-      padding:32px 20px;
-      background:transparent;
-    }
-    .bk-canvas{
-      width:min(100%,1240px);
-      margin:auto;
-      overflow:hidden;
-      background: rgba(15, 23, 42, 0.45) !important;
-      backdrop-filter: blur(24px) saturate(160%);
-      -webkit-backdrop-filter: blur(24px) saturate(160%);
-      border: 1px solid rgba(255, 255, 255, 0.1) !important;
-      border-radius: 28px;
-      box-shadow: 
-        0 24px 90px rgba(0, 0, 0, 0.4),
-        inset 0 1px 1px rgba(255, 255, 255, 0.05);
-    }
-    .bk-hero{
-      position:relative;
-      overflow:hidden;
-      min-height:760px;
-      background: 
-        radial-gradient(circle at 16% 8%, rgba(255, 139, 69, 0.15), transparent 40%),
-        radial-gradient(circle at 72% 4%, rgba(139, 92, 246, 0.18), transparent 45%),
-        linear-gradient(180deg, rgba(15, 23, 42, 0.5) 0%, rgba(10, 17, 38, 0.2) 100%);
-      border-bottom:1px solid rgba(255, 255, 255, 0.05);
-    }
-    .bk-hero:before{
-      content:"";
-      position:absolute;
-      inset:0 0 auto;
-      height:155px;
-      background:linear-gradient(90deg,rgba(255,139,69,.08),rgba(139,92,246,.12),rgba(255,255,255,0));
-    }
-    .bk-nav,.bk-hero-grid,.bk-section,.bk-budget,.bk-pricing,.bk-faq,.bk-footer{width:min(100% - 48px,1010px);margin:auto}
-    .bk-nav{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:30px 0}
-    .bk-logo{display:flex;align-items:center;gap:9px;color:#ffffff;font-size:15px;letter-spacing:-.03em;font-family:'Outfit',sans-serif;font-weight:700}
-    .bk-logo span{
-      display:grid;
-      place-items:center;
-      width:28px;
-      height:28px;
-      color:white;
-      background:#ff8b45;
-      border-radius:9px;
-      box-shadow: 0 0 15px rgba(255, 139, 69, 0.4);
-      font-size:13px;
-      font-weight:900;
-    }
-    .bk-nav nav{display:flex;gap:34px;color:#94a3b8;font-size:12px;font-weight:650}
-    .bk-nav nav a{transition: color 0.2s;}
-    .bk-nav nav a:hover,.bk-nav>div:last-child button:first-child:hover{color:#ff8b45}
-    .bk-nav>div:last-child{display:flex;align-items:center;gap:14px;color:#cbd5e1;font-size:12px;font-weight:750}
-    .bk-auth-link{padding:0;border:0;background:transparent;color:inherit;cursor:pointer;font-size:12px;font-weight:750;transition: color 0.2s;}
-    .bk-dark{
-      padding:9px 18px;
-      color:#fff;
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 999px;
-      cursor:pointer;
-      font-size:12px;
-      font-weight:850;
-      transition: all 0.25s ease;
-    }
-    .bk-dark:hover{
-      background: rgba(255, 255, 255, 0.16);
-      box-shadow: 0 0 15px rgba(255,255,255,0.1);
-      transform: translateY(-1px);
-    }
-    .bk-hero-grid{position:relative;z-index:1;display:grid;grid-template-columns:.88fr 1.12fr;align-items:center;gap:56px;padding:88px 0 110px}
-    .bk-eyebrow,.bk-kicker{margin:0 0 14px;color:#64748b;font-size:10px;font-weight:850;letter-spacing:.24em;text-transform:uppercase}
-    .bk-eyebrow span{margin:0 10px;color:#ff8b45}
-    .bk-hero h1{
-      max-width:535px;
-      margin:0;
-      color:#ffffff;
-      font-size:clamp(42px,5.6vw,62px);
-      font-weight:620;
-      letter-spacing:-.07em;
-      line-height:1.06;
-      font-family:'Space Grotesk',sans-serif;
-    }
-    .bk-hero mark{
-      display:inline-flex;
-      padding:0 8px 2px;
-      color:#ff8b45;
-      background: rgba(255, 139, 69, 0.08);
-      border: 1px solid rgba(255, 139, 69, 0.25);
-      border-radius:12px;
-      box-shadow: 0 0 20px rgba(255,139,69,0.15);
-    }
-    .bk-sub{max-width:430px;margin:25px 0 0;color:#94a3b8;font-size:14px;line-height:1.9}
-    .bk-actions{display:flex;flex-wrap:wrap;gap:14px;margin-top:30px}
-    .bk-orange,.bk-soft,.bk-cta a,.bk-cta button{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      gap:8px;
-      min-height:44px;
-      padding:0 24px;
-      border-radius:999px;
-      font-size:12px;
-      font-weight:850;
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-      cursor: pointer;
-    }
-    .bk-orange,.bk-cta a,.bk-cta button{
-      color:#fff;
-      background: linear-gradient(135deg, rgba(255, 139, 69, 0.85), rgba(255, 98, 0, 0.95)) !important;
-      border: 1px solid rgba(255, 255, 255, 0.25) !important;
-      box-shadow: 0 8px 30px rgba(255, 139, 69, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
-    }
-    .bk-orange:hover,.bk-cta a:hover,.bk-cta button:hover {
-      box-shadow: 0 12px 35px rgba(255, 139, 69, 0.5), 0 0 15px rgba(255, 139, 69, 0.2) !important;
-      transform: translateY(-1.5px);
-    }
-    .bk-soft{
-      color:#e2eaf8;
-      background:rgba(255,255,255,0.06);
-      border:1px solid rgba(255,255,255,0.12);
-    }
-    .bk-soft:hover{
-      background:rgba(255,255,255,0.12);
-      border-color:rgba(255,255,255,0.25);
-      transform: translateY(-1.5px);
-    }
-    .bk-dashboard{
-      width:100%;
-      max-width:655px;
-      margin:auto;
-      padding:8px;
-      border: 1px solid rgba(255, 255, 255, 0.12) !important;
-      border-radius:24px;
-      background: rgba(15, 23, 42, 0.45) !important;
-      box-shadow: 0 38px 90px rgba(0,0,0,0.5);
-      transform:translateX(24px) rotate(-7deg);
-      backdrop-filter:blur(24px);
-    }
-    .bk-window{overflow:hidden;border:1px solid rgba(255,255,255,0.06);border-radius:18px;background:rgba(10, 17, 38, 0.7)}
-    .bk-window-top{display:flex;align-items:center;gap:8px;height:48px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,0.06)}
-    .bk-window-top i{width:10px;height:10px;border-radius:999px}
-    .bk-window-top i:nth-child(1){background:#ff8b45}
-    .bk-window-top i:nth-child(2){background:#f4cda8}
-    .bk-window-top i:nth-child(3){background:#a9d8c7}
-    .bk-window-top b{width:112px;height:28px;margin-left:auto;border-radius:999px;background:rgba(255,255,255,0.06)}
-    .bk-window-body{display:grid;grid-template-columns:144px 1fr}
-    .bk-window aside{min-height:440px;padding:18px 14px;background:rgba(15, 23, 42, 0.3);border-right:1px solid rgba(255,255,255,0.06)}
-    .bk-window aside .bk-logo{margin-bottom:24px;font-size:12px}
-    .bk-window aside p{margin:0 0 8px;padding:10px 12px;color:#94a3b8;border-radius:12px;font-size:11px;font-weight:650}
-    .bk-window aside .active{color:#ff8b45;background:rgba(255,139,69,0.12)}
-    .bk-window main{padding:20px}
-    .bk-dash-head,.bk-mini article:nth-child(2) p{display:flex;align-items:center;justify-content:space-between}
-    .bk-dash-head small,.bk-metrics small{color:#64748b;font-size:10px;font-weight:850;text-transform:uppercase}
-    .bk-dash-head h3{margin:3px 0 0;font-size:18px;letter-spacing:-.05em;color:#ffffff}
-    .bk-dash-head>span{padding:7px 11px;color:#94a3b8;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);border-radius:999px;font-size:11px;font-weight:750}
-    .bk-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
-    .bk-metrics article,.bk-bars,.bk-mini article{border:1px solid rgba(255,255,255,0.06);border-radius:18px;background:rgba(15,23,42,0.4);box-shadow:none}
-    .bk-metrics article{padding:14px}
-    .bk-metrics strong{display:block;margin-top:8px;font-size:24px;letter-spacing:-.07em;color:#ffffff}
-    .bk-metrics em{display:block;margin-top:3px;color:#10b981;font-size:10px;font-style:normal;font-weight:850}
-    .bk-bars{display:flex;align-items:flex-end;gap:9px;height:140px;margin-top:14px;padding:20px;background:rgba(15,23,42,0.3);border-color:rgba(255,255,255,0.05)}
-    .bk-bars span{flex:1;min-width:8px;border-radius:10px 10px 2px 2px;background:linear-gradient(180deg,#ffd0a7,#ff8b45)}
-    .bk-mini{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
-    .bk-mini article{padding:18px}
-    .bk-mini article:first-child{display:flex;align-items:center;gap:16px}
-    .bk-mini b{font-size:13px;color:#ffffff}
-    .bk-mini p{margin:7px 0 0;color:#94a3b8;font-size:11px}
-    .bk-ring{display:grid;place-items:center;flex:0 0 auto;width:70px;height:70px;color:#ffffff;border:13px solid #10b981;border-right-color:rgba(16,185,129,0.15);border-radius:999px;background:rgba(15,23,42,0.6);font-size:22px;font-weight:850}
-    .bk-intro{padding:100px 24px 68px;text-align:center}
-    .bk-intro p{max-width:640px;margin:auto;color:#f1f5f9;font-size:clamp(24px,3.2vw,32px);font-weight:540;letter-spacing:-.06em;line-height:1.34;font-family:'Space Grotesk',sans-serif}
-    .bk-section,.bk-budget,.bk-integrations,.bk-pricing,.bk-faq,.bk-tools,.bk-comparison,.bk-testimonials{padding:76px 0}
-    .bk-section-head{display:flex;align-items:end;justify-content:space-between;gap:24px;margin-bottom:38px}
-    .bk-section h2,.bk-budget h2,.bk-integrations h2,.bk-pricing h2,.bk-faq h2,.bk-tools h2,.bk-comparison h2,.bk-testimonials h2{
-      margin:0;
-      color:#ffffff;
-      font-size:clamp(32px,4vw,44px);
-      font-weight:560;
-      letter-spacing:-.065em;
-      line-height:1.08;
-      font-family:'Space Grotesk',sans-serif;
-    }
-    .bk-tabs{display:flex;flex-wrap:wrap;gap:3px;padding:4px;color:#94a3b8;border:1px solid rgba(255,255,255,0.08);border-radius:999px;background:rgba(255,255,255,0.04);font-size:11px;font-weight:750}
-    .bk-tabs span{padding:9px 14px;border-radius:999px;cursor:pointer;}
-    .bk-tabs span:first-child{color:#ffffff;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);box-shadow:none}
-    .bk-feature-grid,.bk-budget-notes,.bk-plan-grid,.bk-tools-grid,.bk-testimonial-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
-    
-    .bk-feature-grid article,.bk-plan-grid article,.bk-tools-grid article,.bk-testimonial-grid article{
-      border:1px solid rgba(255,255,255,0.08);
-      border-radius:12px;
-      background:rgba(15, 23, 42, 0.45);
-      box-shadow:0 20px 60px rgba(0, 0, 0, 0.3);
-      backdrop-filter:blur(16px);
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    .bk-feature-grid article:hover, .bk-plan-grid article:hover, .bk-tools-grid article:hover, .bk-testimonial-grid article:hover {
-      border-color: rgba(255, 139, 69, 0.25);
-      box-shadow: 0 20px 60px rgba(255, 139, 69, 0.05), 0 0 20px rgba(255, 139, 69, 0.03);
-      transform: translateY(-2px);
-    }
-    .bk-feature-grid article{min-height:250px;padding:28px}
-    .bk-feature-grid i,.bk-budget-notes .dot,.bk-tools-grid i{display:grid;place-items:center;width:38px;height:38px;color:#ff8b45;border-radius:13px;background:rgba(255,139,69,0.12);font-style:normal;font-weight:900}
-    .bk-feature-grid h3,.bk-budget-notes h3,.bk-tools-grid h3{margin:22px 0 0;font-size:16px;letter-spacing:-.03em;color:#ffffff;font-family:'Outfit',sans-serif}
-    .bk-feature-grid p,.bk-budget-notes p,.bk-tools-grid p{margin:10px 0 0;color:#94a3b8;font-size:12px;line-height:1.8}
-    .bk-feature-grid article div:last-child{display:flex;align-items:end;gap:10px;margin-top:30px}
-    .bk-feature-grid strong{font-size:25px;letter-spacing:-.06em;color:#ffffff}
-    .bk-spark{display:flex;align-items:end;gap:6px;height:54px;color:#ff8b45}
-    .bk-spark span{width:8px;border-radius:999px;background:linear-gradient(180deg,#ffd0a7,#ff8b45)}
-    .bk-budget,.bk-integrations,.bk-pricing,.bk-tools,.bk-comparison,.bk-testimonials{text-align:center}
-    .bk-budget h2,.bk-integrations h2,.bk-pricing h2,.bk-tools h2,.bk-comparison h2,.bk-testimonials h2{max-width:680px;margin:auto}
-    
-    .bk-table{
-      overflow:hidden;
-      margin-top:46px;
-      border:1px solid rgba(255,255,255,0.08);
-      border-radius:12px;
-      background:rgba(15,23,42,0.4);
-      box-shadow: 0 28px 70px rgba(0,0,0,0.25);
-      text-align:left;
-    }
-    .bk-table h3{margin:0;padding:17px 22px;border-bottom:1px solid rgba(255,139,69,0.15);background:rgba(255,139,69,0.08);font-size:15px;color:#ffffff}
-    .bk-table table{width:100%;min-width:640px;border-collapse:collapse;font-size:14px}
-    .bk-table th,.bk-table td{padding:17px 22px;border-top:1px solid rgba(255,255,255,0.06)}
-    .bk-table th{color:#64748b;font-size:11px;text-align:left;background:rgba(255,255,255,0.02)}
-    .bk-table td:first-child{color:#ffffff;font-weight:750}
-    .bk-table td{color:#cbd5e1}
-    .bk-budget-notes{margin-top:28px;text-align:left}
-    .bk-budget-notes article{padding:14px}
-    .bk-integrations{padding-inline:24px;background:radial-gradient(circle at 50% 40%,rgba(255,190,157,.06),transparent 28%),linear-gradient(180deg,transparent,#0b1329 80%,transparent)}
-    .bk-integrations>p:not(.bk-kicker),.bk-tools>p,.bk-comparison>p,.bk-testimonials>p{max-width:520px;margin:18px auto 0;color:#94a3b8;font-size:14px;line-height:1.75}
-    
-    .bk-logo-cloud{display:flex;flex-wrap:wrap;justify-content:center;gap:14px;max-width:720px;margin:34px auto 0}
-    .bk-logo-cloud span{
-      padding:13px 20px;
-      color:#e2eaf8;
-      border:1px solid rgba(255,255,255,0.08);
-      border-radius:999px;
-      background:rgba(255,255,255,0.03);
-      box-shadow:none;
-      font-size:12px;
-      font-weight:850;
-      transition: all 0.2s;
-    }
-    .bk-logo-cloud span:hover {
-      border-color: rgba(255, 139, 69, 0.25);
-      background: rgba(255, 139, 69, 0.08);
-    }
-    .bk-plan-grid{margin-top:44px;text-align:left}
-    .bk-plan-grid article{padding:28px}
-    .bk-plan-grid .featured{
-      border-color:#ff8b45;
-      box-shadow: 0 0 0 4px rgba(255,139,69,0.18), 0 24px 70px rgba(0,0,0,0.4);
-      background:rgba(15,23,42,0.6) !important;
-    }
-    .bk-plan-grid h3{margin:0;font-size:15px;color:#ffffff;font-family:'Outfit',sans-serif}
-    .bk-plan-grid>article>strong{display:block;margin-top:19px;font-size:42px;letter-spacing:-.07em;color:#ffffff;font-family:'Space Grotesk',sans-serif}
-    .bk-plan-grid strong span{margin-left:3px;color:#94a3b8;font-size:14px;font-weight:650;letter-spacing:0}
-    .bk-plan-grid>article>p{min-height:44px;color:#94a3b8;font-size:12px;line-height:1.7}
-    .bk-plan-grid article>a,.bk-plan-grid article>button{
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      width:100%;
-      min-height:42px;
-      margin-top:22px;
-      color:#ffffff;
-      border:1px solid rgba(255,255,255,0.1);
-      border-radius:999px;
-      background:rgba(255,255,255,0.06);
-      cursor:pointer;
-      font-size:12px;
-      font-weight:850;
-      transition: all 0.25s;
-    }
-    .bk-plan-grid article>a:hover, .bk-plan-grid article>button:hover {
-      background: rgba(255,255,255,0.12);
-      border-color: rgba(255,255,255,0.25);
-    }
-    .bk-plan-grid .featured>a,.bk-plan-grid .featured>button{
-      color:white;
-      border-color:#ff8b45;
-      background:#ff8b45 !important;
-      box-shadow:0 12px 28px rgba(255,139,69,0.22);
-    }
-    .bk-plan-grid .featured>a:hover,.bk-plan-grid .featured>button:hover{
-      box-shadow: 0 15px 35px rgba(255,139,69,0.4);
-    }
-    .bk-plan-grid ul{display:grid;gap:12px;margin:24px 0 0;padding:0;list-style:none}
-    .bk-plan-grid li{display:flex;gap:10px;color:#94a3b8;font-size:12px;line-height:1.55}
-    .bk-plan-grid li:before{content:"";width:15px;height:15px;flex:0 0 auto;border-radius:50%;background:#ff8b45;box-shadow:inset 0 0 0 4px #1e293b}
-    .bk-tools{background:transparent;padding-inline:24px}
-    .bk-tools-grid{width:min(100%,1010px);margin:44px auto 0;text-align:left}
-    .bk-tools-grid article{min-height:150px;padding:24px;border-color:rgba(255,255,255,0.08);background:rgba(15,23,42,0.4)}
-    .bk-comparison{padding-inline:24px}
-    .bk-comparison-table{
-      width:min(100%,1010px);
-      margin:42px auto 0;
-      overflow:auto;
-      border:1px solid rgba(255,255,255,0.08);
-      border-radius:16px;
-      background:rgba(15,23,42,0.4);
-      box-shadow:0 22px 55px rgba(0,0,0,0.3);
-      text-align:left;
-    }
-    .bk-comparison table{width:100%;min-width:760px;border-collapse:collapse}
-    .bk-comparison th,.bk-comparison td{padding:22px;border-right:1px solid rgba(255,255,255,0.06);border-bottom:1px solid rgba(255,255,255,0.06)}
-    .bk-comparison tr:last-child td{border-bottom:0}
-    .bk-comparison th:last-child,.bk-comparison td:last-child{border-right:0}
-    .bk-comparison th{background:rgba(255,139,69,0.05);color:#ffffff;font-size:13px}
-    .bk-comparison td{color:#cbd5e1;font-size:13px;line-height:1.65}
-    .bk-comparison td strong{color:#ffffff}
-    .bk-testimonials{background:transparent;padding-inline:24px}
-    .bk-testimonial-grid{width:min(100%,1010px);margin:44px auto 0;text-align:left}
-    .bk-testimonial-grid article{padding:28px;border-color:rgba(255,255,255,0.08);background:rgba(15,23,42,0.4)}
-    .bk-stars{color:#ff8b45;letter-spacing:2px;font-size:18px}
-    .bk-testimonial-grid p{color:#cbd5e1;line-height:1.8}
-    .bk-testimonial-grid strong{display:block;margin-top:20px;color:#ffffff}
-    .bk-faq{display:grid;grid-template-columns:.78fr 1.22fr;gap:56px}
-    .bk-faq>div:first-child>p:not(.bk-kicker){max-width:370px;margin-top:24px;color:#94a3b8;font-size:14px;line-height:1.8}
-    .bk-faq-list{display:grid;gap:12px}
-    .bk-faq-list details{overflow:hidden;border:1px solid rgba(255,255,255,0.08);border-radius:14px;background:rgba(15,23,42,0.4);box-shadow:none}
-    .bk-faq-list summary{display:flex;align-items:center;justify-content:space-between;gap:20px;width:100%;padding:18px 20px;color:#ffffff;cursor:pointer;text-align:left;font-size:14px;font-weight:850;list-style:none}
-    .bk-faq-list summary::-webkit-details-marker{display:none}
-    .bk-faq-list summary:after{content:"+";color:#94a3b8;font-size:19px}
-    .bk-faq-list details[open] summary:after{content:"-"}
-    .bk-faq-list p{margin:0;padding:0 20px 18px;color:#94a3b8;font-size:14px;line-height:1.75}
-    .bk-cta{
-      width:min(100% - 48px,1010px);
-      margin:74px auto;
-      padding:72px 34px;
-      color:white;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius:16px;
-      background:radial-gradient(circle at top left,rgba(255,139,69,.22),transparent 34%),linear-gradient(135deg,#161927,#2f3449);
-      box-shadow: 0 30px 70px rgba(0, 0, 0, 0.4);
-      text-align:center;
-    }
-    .bk-cta h2{max-width:620px;margin:auto;font-size:clamp(30px,4vw,42px);font-weight:540;letter-spacing:-.06em;line-height:1.16;font-family:'Space Grotesk',sans-serif}
-    .bk-cta p{max-width:540px;margin:18px auto 0;color:#d7dce8;font-size:14px;line-height:1.7}
-    .bk-cta a,.bk-cta button{margin-top:32px;border:0;cursor:pointer}
-    .bk-footer{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:40px 0;border-top:1px solid rgba(255,255,255,0.06);color:#64748b;font-size:12px}
-    .bk-footer>div{display:flex;align-items:center;gap:16px;font-weight:750}
-    .bk-footer .bk-logo{color:#ffffff}
-    
-    @media(max-width:980px){
-      .bk-hero-grid,.bk-faq{grid-template-columns:1fr}
-      .bk-hero-grid{gap:50px;padding-top:56px}
-      .bk-dashboard{transform:none}
-      .bk-feature-grid,.bk-budget-notes,.bk-plan-grid,.bk-metrics,.bk-mini,.bk-tools-grid,.bk-testimonial-grid{grid-template-columns:1fr}
-      .bk-section-head{display:grid;align-items:start}
-    }
-    @media(max-width:740px){
-      .bk-page{padding:0}
-      .bk-canvas{width:100%; border-radius: 0;}
-      .bk-nav,.bk-hero-grid,.bk-section,.bk-budget,.bk-pricing,.bk-faq,.bk-footer,.bk-cta{width:min(100% - 32px,1010px)}
-      .bk-nav nav{display:none}
-      .bk-nav>div:last-child button:first-child{display:none}
-      .bk-hero{min-height:auto}
-      .bk-hero h1{font-size:43px}
-      .bk-window-body{grid-template-columns:1fr}
-      .bk-window aside{display:none}
-      .bk-window main{padding:14px}
-      .bk-tabs{border-radius:18px}
-      .bk-table{overflow-x:auto}
-      .bk-footer{flex-direction:column;align-items:flex-start}
-    }
-
-    /* Redesigned Centered Glassmorphic Auth Modal Styles */
-    .auth-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(4, 7, 20, 0.65);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      opacity: 0;
-      visibility: hidden;
-      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-      z-index: 9999;
-      display: grid;
-      place-items: center;
-      padding: 24px;
-      overflow-y: auto;
-    }
-    .auth-overlay.active {
-      opacity: 1;
-      visibility: visible;
-    }
-
-    .auth-drawer {
-      position: relative;
-      width: 100%;
-      max-width: 480px;
-      background: linear-gradient(145deg, rgba(20, 30, 60, 0.88), rgba(10, 15, 30, 0.96));
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 28px;
-      box-shadow: 
-        0 30px 90px rgba(0, 0, 0, 0.6),
-        inset 0 1px 0 rgba(255, 255, 255, 0.15),
-        inset 0 -1px 0 rgba(255, 255, 255, 0.05);
-      backdrop-filter: blur(24px) saturate(160%);
-      z-index: 10000;
-      transform: scale(0.9) translateY(20px);
-      opacity: 0;
-      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-      display: flex;
-      flex-direction: column;
-      color: #ffffff;
-      overflow: hidden;
-      font-family: 'Inter', sans-serif;
-    }
-    .auth-drawer.active {
-      transform: scale(1) translateY(0);
-      opacity: 1;
-    }
-
-    .drawer-bg-blob {
-      position: absolute;
-      width: 300px;
-      height: 300px;
-      border-radius: 50%;
-      filter: blur(70px);
-      opacity: 0.15;
-      z-index: -1;
-      pointer-events: none;
-    }
-    .drawer-bg-blob-1 {
-      background: radial-gradient(circle, rgba(255, 139, 69, 0.8) 0%, transparent 70%);
-      top: -10%;
-      right: -10%;
-    }
-    .drawer-bg-blob-2 {
-      background: radial-gradient(circle, rgba(35, 191, 118, 0.8) 0%, transparent 70%);
-      bottom: -10%;
-      left: -10%;
-    }
-
-    .drawer-container {
-      padding: 40px 32px;
-      display: flex;
-      flex-direction: column;
-      min-height: 100%;
-      position: relative;
-      z-index: 1;
-    }
-
-    .drawer-close {
-      position: absolute;
-      top: 24px;
-      right: 24px;
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      color: rgba(255, 255, 255, 0.7);
-      display: grid;
-      place-items: center;
-      font-size: 20px;
-      cursor: pointer;
-      transition: all 0.2s ease, transform 0.2s;
-      line-height: 1;
-    }
-    .drawer-close:hover {
-      background: rgba(255, 255, 255, 0.18);
-      color: #fff;
-      transform: rotate(90deg);
-    }
-
-    .drawer-header {
-      margin-top: 10px;
-      margin-bottom: 24px;
-    }
-    .drawer-logo {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      font-size: 15px;
-      color: #ffffff;
-      margin-bottom: 16px;
-      font-weight: 800;
-      font-family: 'Outfit', sans-serif;
-    }
-    .drawer-logo span {
-      display: grid;
-      place-items: center;
-      width: 28px;
-      height: 28px;
-      color: white;
-      background: #ff8b45;
-      border-radius: 9px;
-      box-shadow: 0 10px 20px rgba(255, 139, 69, .25);
-      font-size: 13px;
-      font-weight: 900;
-    }
-    .drawer-title {
-      font-size: 28px;
-      font-weight: 800;
-      color: #fff;
-      margin: 0 0 6px;
-      letter-spacing: -0.02em;
-      font-family: 'Space Grotesk', sans-serif;
-    }
-    .drawer-subtitle {
-      font-size: 13.5px;
-      color: rgba(255, 255, 255, 0.65);
-      margin: 0;
-      line-height: 1.5;
-    }
-
-    .drawer-tabs {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 4px;
-      padding: 4px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 12px;
-      margin-bottom: 24px;
-    }
-    .drawer-tab {
-      padding: 12px;
-      border: 0;
-      background: transparent;
-      color: rgba(255, 255, 255, 0.6);
-      font-size: 13.5px;
-      font-weight: 700;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      text-align: center;
-    }
-    .drawer-tab.active {
-      background: rgba(255, 255, 255, 0.9);
-      color: #060b18;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-
-    .drawer-panel {
-      display: none;
-    }
-    .drawer-panel.active {
-      display: block;
-    }
-    .drawer-field-group {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      margin-bottom: 20px;
-    }
-    .drawer-input-container {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .drawer-label {
-      font-size: 11px;
-      font-weight: 750;
-      text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.5);
-      letter-spacing: 0.08em;
-    }
-    .drawer-input {
-      width: 100%;
-      height: 48px;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 12px;
-      color: #fff;
-      padding: 0 16px;
-      font-size: 14px;
-      outline: none;
-      transition: all 0.2s;
-    }
-    .drawer-input:focus {
-      background: rgba(255, 255, 255, 0.12);
-      border-color: rgba(255, 139, 69, 0.5);
-      box-shadow: 0 0 0 3px rgba(255, 139, 69, 0.15);
-    }
-    .drawer-input::placeholder {
-      color: rgba(255, 255, 255, 0.35);
-    }
-
-    .drawer-row {
+    /* ───── NAVBAR ───── */
+    .bk-nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 24px;
-      font-size: 13px;
-      color: rgba(255, 255, 255, 0.65);
+      padding: 0 clamp(20px,5vw,60px);
+      height: 68px;
+      background: var(--nav-bg);
+      border-bottom: 1px solid var(--nav-border);
+      backdrop-filter: blur(24px) saturate(160%);
+      -webkit-backdrop-filter: blur(24px) saturate(160%);
+      transition: background 0.3s, border-color 0.3s;
     }
-    .drawer-checkbox-label {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-      user-select: none;
-    }
-    .drawer-checkbox-label input {
-      accent-color: #ff8b45;
-      width: 15px;
-      height: 15px;
-    }
-
-    .drawer-submit {
-      width: 100%;
-      height: 50px;
-      border: 0;
-      border-radius: 12px;
-      background: linear-gradient(135deg, #ff8b45 0%, #ff6200 100%);
-      border: 1px solid rgba(255, 255, 255, 0.2) !important;
-      color: #fff;
-      font-size: 14.5px;
-      font-weight: 800;
-      cursor: pointer;
-      box-shadow: 0 8px 24px rgba(255, 107, 0, 0.22);
-      transition: all 0.2s;
+    .bk-logo {
       display: flex;
       align-items: center;
-      justify-content: center;
-      gap: 8px;
+      gap: 10px;
+      font-family: Outfit, sans-serif;
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text-main);
+      letter-spacing: -0.3px;
     }
-    .drawer-submit:hover {
-      transform: translateY(-1.5px);
-      box-shadow: 0 12px 28px rgba(255, 107, 0, 0.32), 0 0 15px rgba(255, 107, 0, 0.15);
+    .bk-logo-icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      border-radius: 9px;
+      display: grid; place-items: center;
+      color: white;
+      font-weight: 900; font-size: 15px;
+      box-shadow: 0 4px 12px rgba(var(--primary-rgb),0.3);
     }
-    .drawer-submit:active {
-      transform: translateY(1px);
-    }
-
-    .drawer-switch {
-      margin-top: 18px;
-      text-align: center;
+    .bk-logo strong { color: var(--primary); }
+    nav.bk-links { display: flex; gap: 30px; }
+    nav.bk-links a {
+      color: var(--text-muted);
       font-size: 13px;
-      color: rgba(255, 255, 255, 0.5);
-    }
-    .drawer-link {
-      color: #ff8b45;
-      background: transparent;
-      border: 0;
-      font-weight: 750;
-      cursor: pointer;
-      padding: 0;
+      font-weight: 600;
       transition: color 0.2s;
     }
-    .drawer-link:hover {
-      color: #ffaa76;
-      text-decoration: underline;
+    nav.bk-links a:hover { color: var(--text-main); }
+    .bk-nav-right { display: flex; align-items: center; gap: 12px; }
+
+    /* Theme toggle */
+    .theme-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px;
+      background: var(--input-bg);
+      border: 1px solid var(--input-border);
+      border-radius: 99px;
+      color: var(--text-muted);
+      font-size: 11px; font-weight: 800;
+      cursor: pointer;
+      transition: all 0.2s;
+      min-height: 44px; /* WCAG 44x44px Touch Target */
+      min-width: 44px;
+      justify-content: center;
+    }
+    .theme-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .theme-icon-light { display: inline; }
+    .theme-icon-dark { display: none; }
+    .dark .theme-icon-light { display: none; }
+    .dark .theme-icon-dark { display: inline; }
+
+    .bk-auth-link {
+      background: transparent; border: 0;
+      color: var(--text-muted); font-size: 13px; font-weight: 700;
+      cursor: pointer; transition: color 0.2s;
+    }
+    .bk-auth-link:hover { color: var(--text-main); }
+    .bk-btn-primary {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 9px 20px;
+      background: linear-gradient(135deg, rgba(99,102,241,0.85), rgba(139,92,246,0.95));
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 99px;
+      color: white; font-size: 13px; font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(var(--primary-rgb),0.25);
+      transition: all 0.25s cubic-bezier(0.16,1,0.3,1);
+    }
+    .dark .bk-btn-primary {
+      background: linear-gradient(135deg, rgba(129,140,248,0.9), rgba(167,139,250,0.95));
+      color: #0b1329;
+    }
+    .bk-btn-primary:hover {
+      transform: translateY(-1.5px);
+      box-shadow: 0 8px 24px rgba(var(--primary-rgb),0.4);
     }
 
-    .drawer-error-alert {
-      border: 1px solid rgba(239, 68, 68, 0.35);
-      background: rgba(239, 68, 68, 0.12);
-      color: #fca5a5;
-      padding: 12px 14px;
-      border-radius: 12px;
-      font-size: 13px;
-      margin-bottom: 20px;
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      line-height: 1.4;
+    /* ───── HERO ───── */
+    .bk-hero {
+      width: min(100% - 48px, 1180px);
+      margin: auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: center;
+      gap: 56px;
+      padding: 90px 0 100px;
     }
-    .drawer-error-icon {
+    .bk-eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 5px 14px;
+      background: rgba(var(--primary-rgb),0.1);
+      border: 1px solid rgba(var(--primary-rgb),0.2);
+      border-radius: 99px;
+      color: var(--primary);
+      font-size: 10px; font-weight: 800;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .bk-eyebrow::before {
+      content: ""; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--primary);
+      animation: pulse-dot 1.8s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.7); }
+    }
+    .bk-hero h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(28px,5vw,58px);
+      font-weight: 700;
+      letter-spacing: -0.065em;
+      line-height: 1.06;
+      color: var(--text-main);
+      margin-bottom: 20px;
+    }
+    .bk-hero h1 mark {
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .bk-hero-sub {
+      color: var(--text-muted);
+      font-size: 15px;
+      line-height: 1.85;
+      max-width: 440px;
+      margin-bottom: 36px;
+    }
+    .bk-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+    .bk-btn-soft {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 9px 20px;
+      background: var(--input-bg);
+      border: 1px solid var(--input-border);
+      border-radius: 99px;
+      color: var(--text-main); font-size: 13px; font-weight: 700;
+      cursor: pointer;
+      transition: all 0.25s;
+    }
+    .bk-btn-soft:hover {
+      border-color: rgba(var(--primary-rgb),0.4);
+      background: rgba(var(--primary-rgb),0.08);
+      transform: translateY(-1.5px);
+    }
+
+    /* Floating mock dashboard */
+    .bk-dashboard-wrap {
+      position: relative;
+    }
+    .bk-dashboard {
+      width: 100%;
+      max-width: 655px;
+      margin: 0 auto;
+      box-sizing: border-box;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 22px;
+      box-shadow: var(--card-shadow);
+      backdrop-filter: blur(24px) saturate(160%);
+      -webkit-backdrop-filter: blur(24px) saturate(160%);
+      overflow: hidden;
+      transform: perspective(800px) rotateY(-4deg) rotateX(2deg);
+      transition: transform 0.4s ease;
+      animation: float-card 4s ease-in-out infinite alternate;
+    }
+    @keyframes float-card {
+      from { transform: perspective(800px) rotateY(-4deg) rotateX(2deg) translateY(0); }
+      to { transform: perspective(800px) rotateY(-4deg) rotateX(2deg) translateY(-10px); }
+    }
+    .bk-window-top {
+      display: flex; align-items: center; gap: 7px;
+      height: 44px; padding: 0 16px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .bk-window-top i { width: 10px; height: 10px; border-radius: 50%; }
+    .bk-window-top i:nth-child(1) { background: #f87171; }
+    .bk-window-top i:nth-child(2) { background: #fbbf24; }
+    .bk-window-top i:nth-child(3) { background: #34d399; }
+    .bk-window-top b { margin-left: auto; width: 110px; height: 26px; border-radius: 99px; background: var(--input-bg); }
+    .bk-window-body { display: grid; grid-template-columns: 140px 1fr; }
+    .bk-window-aside {
+      padding: 16px 12px;
+      background: var(--input-bg);
+      border-right: 1px solid var(--card-border);
+      min-height: 380px;
+    }
+    .bk-aside-logo {
+      display: flex; align-items: center; gap: 7px;
+      font-family: Outfit, sans-serif; font-size: 11px; font-weight: 800;
+      color: var(--text-main); margin-bottom: 22px;
+    }
+    .bk-aside-logo span {
+      width: 22px; height: 22px; border-radius: 6px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      display: grid; place-items: center;
+      color: white; font-size: 11px; font-weight: 900;
+    }
+    .bk-aside-nav p {
+      margin: 0 0 4px; padding: 8px 10px; border-radius: 8px;
+      font-size: 11px; font-weight: 600; color: var(--text-muted);
+    }
+    .bk-aside-nav p.active {
+      background: linear-gradient(135deg, rgba(var(--primary-rgb),0.85), rgba(139,92,246,0.9));
+      color: white;
+    }
+    .dark .bk-aside-nav p.active { color: #0b1329; }
+    .bk-window-main { padding: 18px; }
+    .bk-dash-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .bk-dash-head h3 { font-size: 14px; font-weight: 800; color: var(--text-main); letter-spacing: -0.3px; }
+    .bk-dash-head small { font-size: 10px; color: var(--text-muted); font-weight: 700; }
+    .bk-dash-period {
+      padding: 5px 10px; border-radius: 99px;
+      background: var(--input-bg); border: 1px solid var(--card-border);
+      font-size: 10px; color: var(--text-muted); font-weight: 700;
+    }
+    .bk-metrics-mini { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 12px; }
+    .bk-metric-card {
+      background: var(--input-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px; padding: 10px;
+    }
+    .bk-metric-card small { display: block; font-size: 9px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .bk-metric-card strong { display: block; font-size: 16px; font-weight: 800; color: var(--text-main); letter-spacing: -0.5px; margin-top: 4px; }
+    .bk-metric-card em { display: block; font-size: 9px; color: var(--success); font-style: normal; font-weight: 700; margin-top: 2px; }
+    .bk-bars { display: flex; align-items: flex-end; gap: 6px; height: 80px; padding: 12px; border-radius: 10px; background: var(--input-bg); border: 1px solid var(--card-border); }
+    .bk-bars span { flex: 1; border-radius: 4px 4px 2px 2px; background: linear-gradient(180deg, var(--accent), var(--primary)); opacity: 0.8; }
+    .bk-health-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+    .bk-ring {
+      width: 54px; height: 54px;
+      border: 8px solid var(--success);
+      border-right-color: rgba(52,211,153,0.15);
+      border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 14px; font-weight: 800;
+      color: var(--text-main);
       flex-shrink: 0;
-      color: #ef4444;
-      font-size: 14px;
+    }
+    .bk-health-text small { display: block; font-size: 9px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; }
+    .bk-health-text b { font-size: 12px; color: var(--text-main); }
+
+    /* ───── SECTIONS ───── */
+    .bk-section-wrap {
+      width: min(100% - 48px, 1180px);
+      margin: auto;
+      padding: 80px 0;
+    }
+    .bk-kicker {
+      display: inline-block;
+      color: var(--primary);
+      font-size: 10px; font-weight: 800;
+      letter-spacing: 0.15em; text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .bk-section-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(28px,3.5vw,42px);
+      font-weight: 700;
+      letter-spacing: -0.06em;
+      line-height: 1.1;
+      color: var(--text-main);
+      max-width: 640px;
+    }
+    .bk-section-sub {
+      color: var(--text-muted);
+      font-size: 14px; line-height: 1.8;
+      max-width: 520px;
+      margin-top: 14px;
+    }
+
+    /* Glass card */
+    .bk-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      backdrop-filter: blur(24px) saturate(160%);
+      -webkit-backdrop-filter: blur(24px) saturate(160%);
+      box-shadow: var(--card-shadow);
+      transition: transform 0.25s cubic-bezier(0.16,1,0.3,1), border-color 0.2s;
+    }
+    .bk-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(var(--primary-rgb),0.3);
+    }
+
+    /* Features grid */
+    .bk-feat-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; margin-top: 44px; }
+    .bk-feat-card { padding: 28px; }
+    .bk-feat-icon {
+      width: 40px; height: 40px; border-radius: 12px;
+      background: rgba(var(--primary-rgb),0.12);
+      border: 1px solid rgba(var(--primary-rgb),0.2);
+      display: grid; place-items: center;
+      color: var(--primary); font-size: 18px;
+      margin-bottom: 18px;
+    }
+    .bk-feat-card h3 {
+      font-family: Outfit, sans-serif;
+      font-size: 16px; font-weight: 700;
+      color: var(--text-main); margin-bottom: 10px;
+    }
+    .bk-feat-card p { color: var(--text-muted); font-size: 13px; line-height: 1.75; }
+    .bk-feat-stat { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
+    .bk-feat-stat strong { font-size: 24px; font-weight: 800; color: var(--text-main); letter-spacing: -0.5px; }
+    .bk-sparkline { display: flex; align-items: flex-end; gap: 4px; height: 36px; }
+    .bk-sparkline span { width: 6px; border-radius: 3px; background: linear-gradient(180deg, var(--accent), var(--primary)); opacity: 0.7; }
+
+    /* Budget / table section */
+    .bk-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+    .bk-table-card { overflow: hidden; margin-top: 0; }
+    .bk-table-head {
+      padding: 16px 22px;
+      border-bottom: 1px solid var(--card-border);
+      background: rgba(var(--primary-rgb),0.07);
+      font-size: 13px; font-weight: 800; color: var(--text-main);
+    }
+    .bk-data-table { width: 100%; border-collapse: collapse; }
+    .bk-data-table th {
+      padding: 12px 22px; text-align: left;
+      font-size: 10px; font-weight: 800; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.06em;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .bk-data-table td {
+      padding: 14px 22px; font-size: 13px;
+      border-bottom: 1px solid var(--card-border);
+      color: var(--text-main);
+    }
+    .bk-data-table tr:last-child td { border-bottom: 0; }
+    .bk-data-table tr:hover td { background: rgba(var(--primary-rgb),0.04); }
+    .bk-note-list { display: grid; gap: 14px; }
+    .bk-note-card { display: flex; gap: 14px; align-items: flex-start; padding: 20px; }
+    .bk-note-dot {
+      width: 34px; height: 34px; flex-shrink: 0;
+      border-radius: 10px;
+      background: rgba(var(--primary-rgb),0.12);
+      border: 1px solid rgba(var(--primary-rgb),0.2);
+      display: grid; place-items: center;
+      color: var(--primary); font-weight: 800; font-size: 13px;
+    }
+    .bk-note-card h4 { font-size: 13px; font-weight: 700; color: var(--text-main); margin-bottom: 5px; }
+    .bk-note-card p { font-size: 12px; color: var(--text-muted); line-height: 1.65; }
+
+    /* Integrations logo cloud */
+    .bk-center { text-align: center; }
+    .bk-logo-cloud { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; max-width: 680px; margin: 32px auto 0; }
+    .bk-logo-chip {
+      padding: 11px 20px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 99px;
+      font-size: 12px; font-weight: 700; color: var(--text-muted);
+      backdrop-filter: blur(12px);
+      transition: all 0.2s;
+    }
+    .bk-logo-chip:hover { border-color: rgba(var(--primary-rgb),0.4); color: var(--primary); }
+
+    /* Tools grid */
+    .bk-tools-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; margin-top: 44px; }
+
+    /* Pricing */
+    .bk-plan-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; margin-top: 44px; }
+    .bk-plan { padding: 28px; }
+    .bk-plan h3 { font-family: Outfit, sans-serif; font-size: 15px; font-weight: 700; color: var(--text-main); }
+    .bk-plan-price {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 44px; font-weight: 700;
+      letter-spacing: -0.06em; color: var(--text-main);
+      margin: 18px 0 4px;
+    }
+    .bk-plan-price span { font-size: 15px; font-weight: 600; color: var(--text-muted); letter-spacing: 0; }
+    .bk-plan-desc { font-size: 12px; color: var(--text-muted); line-height: 1.6; min-height: 36px; }
+    .bk-plan-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; padding: 11px;
+      border-radius: 99px; font-size: 13px; font-weight: 700;
+      cursor: pointer; margin-top: 22px;
+      background: var(--input-bg);
+      border: 1px solid var(--input-border);
+      color: var(--text-main);
+      transition: all 0.25s;
+    }
+    .bk-plan-btn:hover { border-color: rgba(var(--primary-rgb),0.4); background: rgba(var(--primary-rgb),0.08); }
+    .bk-plan.featured {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(var(--primary-rgb),0.15), var(--card-shadow);
+    }
+    .bk-plan.featured .bk-plan-btn {
+      background: linear-gradient(135deg, rgba(99,102,241,0.85), rgba(139,92,246,0.95));
+      border-color: rgba(255,255,255,0.2);
+      color: white;
+    }
+    .dark .bk-plan.featured .bk-plan-btn {
+      background: linear-gradient(135deg, rgba(129,140,248,0.9), rgba(167,139,250,0.95));
+      color: #0b1329;
+    }
+    .bk-plan.featured .bk-plan-btn:hover { box-shadow: 0 6px 20px rgba(var(--primary-rgb),0.35); }
+    .bk-plan ul { list-style: none; display: grid; gap: 10px; margin-top: 22px; }
+    .bk-plan li { display: flex; gap: 10px; font-size: 12px; color: var(--text-muted); }
+    .bk-plan li::before {
+      content: "✓";
+      width: 16px; height: 16px; flex-shrink: 0;
+      border-radius: 50%; background: rgba(var(--primary-rgb),0.15);
+      color: var(--primary); font-size: 9px; font-weight: 900;
+      display: grid; place-items: center;
       margin-top: 2px;
     }
 
-    .spinner {
-      width: 18px;
-      height: 18px;
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      border-top-color: #ffffff;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      display: inline-block;
+    /* Comparison table */
+    .bk-comparison-table { overflow: hidden; margin-top: 44px; }
+    .bk-comp-table { width: 100%; border-collapse: collapse; min-width: 600px; }
+    .bk-comp-table th {
+      padding: 18px 22px; text-align: left;
+      background: rgba(var(--primary-rgb),0.08);
+      color: var(--text-main); font-size: 13px; font-weight: 800;
+      border-bottom: 1px solid var(--card-border);
     }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
+    .bk-comp-table td { padding: 16px 22px; font-size: 13px; color: var(--text-muted); border-bottom: 1px solid var(--card-border); line-height: 1.6; }
+    .bk-comp-table tr:last-child td { border-bottom: 0; }
+    .bk-comp-table td strong { color: var(--text-main); }
 
-    .drawer-success {
-      display: flex;
-      flex-direction: column;
+    /* Testimonials */
+    .bk-testi-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; margin-top: 44px; }
+    .bk-testi { padding: 28px; }
+    .bk-stars { color: #f59e0b; font-size: 16px; letter-spacing: 2px; margin-bottom: 14px; }
+    .bk-testi p { color: var(--text-muted); font-size: 13px; line-height: 1.8; }
+    .bk-testi strong { display: block; color: var(--text-main); font-size: 13px; font-weight: 700; margin-top: 18px; }
+    .bk-testi small { font-size: 11px; color: var(--text-subtle); }
+
+    /* FAQ */
+    .bk-faq-grid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 56px; }
+    .bk-faq-list { display: grid; gap: 10px; }
+    .bk-faq-list details {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      backdrop-filter: blur(16px);
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .bk-faq-list details:hover { border-color: rgba(var(--primary-rgb),0.3); }
+    .bk-faq-list details[open] { border-color: rgba(var(--primary-rgb),0.4); }
+    .bk-faq-list summary {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 20px; padding: 18px 20px;
+      cursor: pointer; list-style: none;
+      font-size: 14px; font-weight: 700; color: var(--text-main);
+    }
+    .bk-faq-list summary::-webkit-details-marker { display: none; }
+    .bk-faq-list summary::after { content: "+"; color: var(--primary); font-size: 20px; flex-shrink: 0; }
+    .bk-faq-list details[open] summary::after { content: "−"; }
+    .bk-faq-list p { margin: 0; padding: 0 20px 18px; color: var(--text-muted); font-size: 13px; line-height: 1.75; }
+
+    /* CTA */
+    .bk-cta-section {
+      width: min(100% - 48px, 1180px);
+      margin: 0 auto 80px;
+    }
+    .bk-cta-card {
+      padding: 72px 40px;
+      text-align: center;
+      background: linear-gradient(135deg, rgba(var(--primary-rgb),0.15), rgba(139,92,246,0.12));
+      border: 1px solid rgba(var(--primary-rgb),0.25);
+      border-radius: 24px;
+      backdrop-filter: blur(24px);
+    }
+    .bk-cta-card h2 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(28px,3.5vw,42px);
+      font-weight: 700; letter-spacing: -0.06em;
+      color: var(--text-main); max-width: 560px; margin: auto;
+    }
+    .bk-cta-card p { max-width: 480px; margin: 18px auto 0; color: var(--text-muted); font-size: 14px; line-height: 1.7; }
+    .bk-cta-card .bk-btn-primary { margin-top: 30px; }
+
+    /* Footer */
+    .bk-footer {
+      border-top: 1px solid var(--card-border);
+      padding: 36px clamp(20px,5vw,60px);
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 20px;
+      color: var(--text-subtle); font-size: 12px;
+    }
+    .bk-footer-links { display: flex; gap: 20px; font-weight: 600; }
+    .bk-footer-links a { transition: color 0.2s; }
+    .bk-footer-links a:hover { color: var(--primary); }
+
+    /* Hamburger Menu Toggle Button Style */
+    .bk-menu-toggle {
+      display: none;
       align-items: center;
       justify-content: center;
-      height: 300px;
-      text-align: center;
+      flex-direction: column;
+      gap: 5px;
+      width: 44px;
+      height: 44px;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      z-index: 101;
+      padding: 0;
     }
-    .drawer-success-icon {
-      width: 64px;
-      height: 64px;
-      background: rgba(35, 191, 118, 0.15);
-      color: #23bf76;
-      border-radius: 50%;
-      display: grid;
-      place-items: center;
-      font-size: 32px;
-      margin-bottom: 20px;
-      box-shadow: 0 10px 24px rgba(35, 191, 118, 0.1);
-      animation: scaleUp 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    .bk-menu-toggle span {
+      display: block;
+      width: 22px;
+      height: 2px;
+      background-color: var(--text-main);
+      border-radius: 2px;
+      transition: transform 0.3s ease, opacity 0.3s ease;
     }
-    @keyframes scaleUp {
-      from { transform: scale(0.6); opacity: 0; }
-      to { transform: scale(1); opacity: 1; }
+    .bk-menu-toggle.active span:nth-child(1) {
+      transform: translateY(7px) rotate(45deg);
+    }
+    .bk-menu-toggle.active span:nth-child(2) {
+      opacity: 0;
+    }
+    .bk-menu-toggle.active span:nth-child(3) {
+      transform: translateY(-7px) rotate(-45deg);
     }
 
-    .drawer-footer {
-      margin-top: auto;
-      padding-top: 32px;
-      text-align: center;
-      color: rgba(255, 255, 255, 0.35);
-      font-size: 11px;
+    /* ───── RESPONSIVE & MOBILE-FIRST OPTIMIZATIONS ───── */
+    
+    /* Segment headings layout */
+    .bk-section-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
     }
+    
+    @media (max-width: 1000px) {
+      .bk-hero, .bk-two-col, .bk-faq-grid { grid-template-columns: 1fr; }
+      .bk-feat-grid, .bk-tools-grid, .bk-testi-grid { grid-template-columns: 1fr 1fr; }
+      .bk-dashboard { transform: none; animation: none; }
+      
+      /* Balance 3-column elements in 2-column layout */
+      .bk-feat-grid .bk-card:last-child,
+      .bk-testi-grid .bk-card:last-child {
+        grid-column: span 2;
+      }
+    }
+    
+    @media (max-width: 860px) {
+      /* Mobile Menu Toggle visibility */
+      .bk-menu-toggle {
+        display: flex;
+      }
+      /* Hide desktop actions in header */
+      .bk-nav-right .bk-auth-link,
+      .bk-nav-right .bk-btn-primary {
+        display: none !important;
+      }
+      /* Drawer mobile navigation */
+      nav.bk-links {
+        position: fixed;
+        top: 68px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: var(--bg-color);
+        background-image: var(--bg-gradient);
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 40px 24px;
+        gap: 8px;
+        z-index: 99;
+        transform: translateY(-150%);
+        opacity: 0;
+        visibility: hidden;
+        transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease, visibility 0.3s;
+        backdrop-filter: blur(12px) saturate(140%);
+        -webkit-backdrop-filter: blur(12px) saturate(140%);
+        border-bottom: 1px solid var(--nav-border);
+        overflow-y: auto;
+      }
+      nav.bk-links.active {
+        transform: translateY(0);
+        opacity: 1;
+        visibility: visible;
+      }
+      nav.bk-links a {
+        font-size: 18px;
+        width: 100%;
+        text-align: center;
+        padding: 14px 0;
+        border-bottom: 1px solid rgba(var(--primary-rgb), 0.06);
+        color: var(--text-main);
+        transition: all 0.2s;
+      }
+      nav.bk-links a:last-of-type {
+        border-bottom: none;
+      }
+      
+      .bk-mobile-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+        width: 100%;
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid var(--nav-border);
+      }
+      .bk-mobile-actions .bk-auth-link {
+        color: var(--text-muted);
+        font-size: 16px;
+        font-weight: 700;
+        padding: 12px;
+        width: 100%;
+        text-align: center;
+        background: var(--input-bg);
+        border: 1px solid var(--input-border);
+        border-radius: 99px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .bk-mobile-actions .bk-btn-primary {
+        width: 100%;
+        justify-content: center;
+        min-height: 44px;
+        display: flex;
+      }
+      
+      /* Responsive plan cards horizontal slider */
+      .bk-plan-grid {
+        display: flex;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        gap: 20px;
+        padding: 24px 20px;
+        margin: 24px -20px 0;
+        -webkit-overflow-scrolling: touch;
+        scroll-padding: 20px;
+      }
+      .bk-plan-grid::-webkit-scrollbar {
+        height: 4px;
+      }
+      .bk-plan-grid .bk-plan {
+        flex: 0 0 280px;
+        scroll-snap-align: center;
+      }
+    }
+    
+    @media (max-width: 768px) {
+      .bk-section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+      }
+      .bk-footer {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 20px;
+        padding: 40px 20px;
+      }
+      .bk-footer-links {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 16px;
+      }
+    }
+    
+    @media (max-width: 680px) {
+      .bk-hero { padding: 40px 0 50px; }
+      .bk-feat-grid, .bk-tools-grid, .bk-testi-grid { grid-template-columns: 1fr; }
+      .bk-nav { padding: 0 20px; }
+      .bk-cta-card { padding: 44px 24px; }
+      .bk-section-wrap { padding: 60px 0; }
+      
+      .bk-hero h1 { line-height: 1.15; }
+      .bk-section-title { line-height: 1.25; }
+      
+      /* Sticky Comparison Table column header/cells */
+      .bk-comp-table th:first-child,
+      .bk-comp-table td:first-child {
+        position: sticky;
+        left: 0;
+        background: var(--card-bg);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        z-index: 2;
+        border-right: 1px solid var(--card-border);
+      }
+      .bk-comp-table th:first-child::after,
+      .bk-comp-table td:first-child::after {
+        content: '';
+        position: absolute;
+        top: 0; right: -5px; bottom: 0;
+        width: 5px;
+        background: linear-gradient(to right, rgba(0,0,0,0.06), transparent);
+        pointer-events: none;
+      }
+      .bk-comp-table {
+        min-width: 500px;
+      }
+      .bk-comp-table td, .bk-comp-table th {
+        padding: 12px 14px;
+        font-size: 12px;
+      }
+      .bk-comp-table tr:hover td:first-child {
+        background: rgba(var(--primary-rgb), 0.08);
+      }
+    }
+    
+    @media (max-width: 560px) {
+      .bk-window-body {
+        grid-template-columns: 1fr;
+      }
+      .bk-window-aside {
+        display: none;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .theme-btn-text {
+        display: none;
+      }
+      .theme-btn {
+        padding: 0;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .auth-modal-body {
+        padding: 28px 20px 24px;
+      }
+      .bk-logo {
+        font-size: 15px;
+      }
+      .bk-logo-icon {
+        width: 28px; height: 28px;
+        font-size: 13px;
+      }
+    }
+    
+    /* Low-end mobile device performance safeguards */
+    @media (max-width: 768px) {
+      .bk-nav, .bk-card, .bk-faq-list details, .bk-cta-card, .auth-modal, .bk-comp-table th:first-child, .bk-comp-table td:first-child {
+        backdrop-filter: blur(8px) saturate(130%);
+        -webkit-backdrop-filter: blur(8px) saturate(130%);
+      }
+    }
+
+    /* ───── TRACKING + ORDER OPERATIONS POSITIONING ───── */
+    .bk-hero {
+      grid-template-columns: minmax(0,0.92fr) minmax(520px,1.08fr);
+      gap: 42px;
+      padding: 62px 0 70px;
+    }
+    .bk-hero-sub { max-width: 540px; margin-bottom: 18px; }
+    .bk-dashboard { max-width: 720px; box-shadow: 0 24px 64px rgba(var(--primary-rgb),0.14); }
+    .bk-hero-capabilities, .bk-management-tags { display:flex; flex-wrap:wrap; gap:8px; }
+    .bk-hero-capabilities { margin-bottom:26px; }
+    .bk-hero-capabilities span, .bk-management-tags span {
+      display:inline-flex; align-items:center; gap:7px;
+      padding:7px 11px;
+      border:1px solid rgba(var(--primary-rgb),0.18);
+      border-radius:99px;
+      background:rgba(var(--primary-rgb),0.07);
+      color:var(--text-main);
+      font-size:11px; font-weight:700;
+    }
+    .bk-hero-capabilities span::before, .bk-management-tags span::before {
+      content:"";
+      width:6px; height:6px; border-radius:50%;
+      background:var(--success);
+    }
+    .bk-workflow-strip {
+      width:min(100% - 48px,1180px);
+      margin:8px auto 36px;
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      padding:18px 20px;
+      border:1px solid var(--card-border);
+      border-radius:18px;
+      background:var(--card-bg);
+      box-shadow:var(--card-shadow);
+      backdrop-filter:blur(20px) saturate(150%);
+    }
+    .bk-workflow-strip div { display:flex; align-items:center; gap:9px; }
+    .bk-workflow-strip strong {
+      display:grid; place-items:center;
+      width:26px; height:26px; flex-shrink:0;
+      border-radius:50%;
+      background:rgba(var(--primary-rgb),0.14);
+      color:var(--primary);
+      font-size:11px;
+    }
+    .bk-workflow-strip span { color:var(--text-main); font-size:11px; font-weight:800; }
+    .bk-workflow-strip i { color:var(--primary); font-size:14px; font-style:normal; opacity:0.65; }
+    .bk-management-band {
+      width:min(100% - 48px,1240px);
+      margin:18px auto 24px;
+      padding:1px;
+      border-radius:28px;
+      background:linear-gradient(135deg,rgba(var(--primary-rgb),0.55),rgba(124,58,237,0.22),rgba(4,120,87,0.35));
+      box-shadow:0 22px 60px rgba(var(--primary-rgb),0.12);
+    }
+    .bk-management-inner {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) minmax(420px,0.92fr);
+      gap:36px; align-items:center;
+      padding:42px;
+      border-radius:27px;
+      background:linear-gradient(135deg,rgba(255,255,255,0.78),rgba(255,255,255,0.54));
+      backdrop-filter:blur(28px) saturate(150%);
+    }
+    .dark .bk-management-inner { background:linear-gradient(135deg,rgba(15,23,42,0.94),rgba(15,23,42,0.72)); }
+    .bk-management-copy .bk-section-sub { max-width:620px; }
+    .bk-management-tags { margin-top:22px; }
+    .bk-ops-preview {
+      padding:20px;
+      border:1px solid var(--card-border);
+      border-radius:20px;
+      background:var(--card-bg);
+      box-shadow:var(--card-shadow);
+    }
+    .bk-ops-top, .bk-ops-row, .bk-ops-metrics { display:grid; align-items:center; }
+    .bk-ops-top { grid-template-columns:1fr auto; gap:16px; margin-bottom:16px; }
+    .bk-ops-top small, .bk-ops-metrics small, .bk-ops-heading {
+      color:var(--text-subtle); font-size:9px; font-weight:800;
+      letter-spacing:0.08em; text-transform:uppercase;
+    }
+    .bk-ops-top h3 { margin-top:3px; color:var(--text-main); font-family:Outfit,sans-serif; font-size:17px; }
+    .bk-ops-live {
+      padding:5px 9px; border-radius:99px;
+      background:rgba(4,120,87,0.14); color:var(--success);
+      font-size:10px; font-weight:800;
+    }
+    .bk-ops-metrics { grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; }
+    .bk-ops-metrics div { padding:11px; border:1px solid var(--card-border); border-radius:11px; background:var(--input-bg); }
+    .bk-ops-metrics strong, .bk-ops-metrics span { display:block; }
+    .bk-ops-metrics strong { margin:4px 0 2px; color:var(--text-main); font-size:19px; }
+    .bk-ops-metrics span { color:var(--success); font-size:10px; font-weight:700; }
+    .bk-ops-table { overflow:hidden; border:1px solid var(--card-border); border-radius:12px; }
+    .bk-ops-row {
+      grid-template-columns:0.78fr 1fr 0.8fr;
+      gap:10px; min-height:42px; padding:0 12px;
+      border-bottom:1px solid var(--card-border);
+      color:var(--text-muted); font-size:11px;
+    }
+    .bk-ops-row:last-child { border-bottom:0; }
+    .bk-ops-row strong { color:var(--text-main); }
+    .bk-ops-row em { justify-self:start; padding:4px 7px; border-radius:99px; font-size:9px; font-style:normal; font-weight:800; }
+    .bk-ops-row em.booked { background:rgba(79,70,229,0.12); color:var(--primary); }
+    .bk-ops-row em.transit { background:rgba(245,158,11,0.16); color:#b45309; }
+    .bk-ops-row em.delivered { background:rgba(4,120,87,0.14); color:var(--success); }
+    .bk-plan.featured { transform:translateY(-10px); box-shadow:0 18px 55px rgba(var(--primary-rgb),0.22); }
+    .bk-plan.featured:hover { transform:translateY(-14px); }
+    .bk-faq-grid > div:first-child {
+      padding:24px;
+      border:1px solid rgba(var(--primary-rgb),0.16);
+      border-radius:20px;
+      background:rgba(var(--primary-rgb),0.055);
+    }
+    .bk-audience-grid {
+      display:grid;
+      grid-template-columns:repeat(4,1fr);
+      gap:16px;
+      margin-top:36px;
+      text-align:left;
+    }
+    .bk-audience-card { padding:22px; }
+    .bk-audience-card strong {
+      display:block;
+      margin-bottom:8px;
+      color:var(--text-main);
+      font-family:Outfit,sans-serif;
+      font-size:15px;
+    }
+    .bk-audience-card span { color:var(--text-muted); font-size:12px; line-height:1.7; }
+    @media (max-width:1080px) {
+      .bk-hero, .bk-management-inner { grid-template-columns:1fr; }
+      .bk-workflow-strip { flex-wrap:wrap; justify-content:center; }
+      .bk-audience-grid { grid-template-columns:repeat(2,1fr); }
+    }
+    @media (max-width:1000px) {
+      .bk-feat-grid .bk-card:last-child { grid-column:auto; }
+    }
+    @media (max-width:680px) {
+      .bk-management-band { width:min(100% - 32px,1240px); }
+      .bk-management-inner { padding:24px 18px; }
+      .bk-ops-preview { padding:14px; }
+      .bk-ops-top, .bk-ops-metrics { grid-template-columns:1fr; }
+      .bk-workflow-strip { margin-bottom:24px; }
+      .bk-workflow-strip i { display:none; }
+      .bk-workflow-strip div { width:100%; }
+      .bk-audience-grid { grid-template-columns:1fr; }
+    }
+
+    /* ───── AUTH MODAL ───── */
+    .auth-overlay {
+      position: fixed; inset: 0;
+      background: rgba(4,7,20,0.6);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      opacity: 0; visibility: hidden;
+      transition: all 0.35s cubic-bezier(0.16,1,0.3,1);
+      z-index: 9999;
+      display: grid; place-items: center;
+      padding: 24px; overflow-y: auto;
+    }
+    .auth-overlay.active { opacity: 1; visibility: visible; }
+    .auth-modal {
+      width: 100%; max-width: 460px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      box-shadow: 0 30px 80px rgba(0,0,0,0.4);
+      backdrop-filter: blur(32px) saturate(160%);
+      -webkit-backdrop-filter: blur(32px) saturate(160%);
+      transform: scale(0.92) translateY(18px);
+      opacity: 0;
+      transition: all 0.35s cubic-bezier(0.16,1,0.3,1);
+      overflow: hidden;
+      color: var(--text-main);
+    }
+    .auth-modal.active { transform: scale(1) translateY(0); opacity: 1; }
+    .auth-modal-body { padding: 36px 32px 32px; }
+    .auth-modal-logo {
+      display: flex; align-items: center; gap: 9px;
+      font-family: Outfit, sans-serif; font-size: 14px; font-weight: 800;
+      margin-bottom: 20px;
+    }
+    .auth-modal-logo span {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      display: grid; place-items: center;
+      color: white; font-size: 13px; font-weight: 900;
+      box-shadow: 0 4px 12px rgba(var(--primary-rgb),0.3);
+    }
+    .auth-modal-close {
+      position: absolute; top: 18px; right: 18px;
+      background: var(--input-bg);
+      border: 1px solid var(--input-border);
+      width: 34px; height: 34px; border-radius: 50%;
+      color: var(--text-muted);
+      display: grid; place-items: center;
+      font-size: 19px; cursor: pointer;
+      transition: all 0.2s;
+    }
+    .auth-modal-close:hover { color: var(--text-main); transform: rotate(90deg); }
+    .auth-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 26px; font-weight: 700;
+      letter-spacing: -0.03em; color: var(--text-main);
+      margin: 0 0 5px;
+    }
+    .auth-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; }
+    .auth-tabs {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+      padding: 4px;
+      background: var(--input-bg);
+      border: 1px solid var(--input-border);
+      border-radius: 12px;
+      margin-bottom: 24px;
+    }
+    .auth-tab {
+      padding: 10px; border: 0; background: transparent;
+      color: var(--text-muted); font-size: 13px; font-weight: 700;
+      border-radius: 9px; cursor: pointer; transition: all 0.2s;
+    }
+    .auth-tab.active {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .auth-panel { display: none; }
+    .auth-panel.active { display: block; }
+    .auth-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+    .auth-label {
+      font-size: 10px; font-weight: 800; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text-muted);
+    }
+    .auth-input {
+      width: 100%; height: 46px;
+      background: var(--input-bg);
+      border: 1px solid var(--input-border);
+      border-radius: 10px;
+      color: var(--text-main);
+      padding: 0 14px; font-size: 14px; outline: none;
+      transition: all 0.2s;
+    }
+    .auth-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(var(--primary-rgb),0.15);
+    }
+    .auth-input::placeholder { color: var(--text-subtle); }
+    .auth-row {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 12px; color: var(--text-muted); margin-bottom: 22px;
+    }
+    .auth-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .auth-row input[type="checkbox"] { accent-color: var(--primary); }
+    .auth-submit {
+      width: 100%; height: 48px;
+      background: linear-gradient(135deg, rgba(99,102,241,0.85), rgba(139,92,246,0.95));
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 10px;
+      color: white; font-size: 14px; font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(var(--primary-rgb),0.25);
+      transition: all 0.2s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .dark .auth-submit {
+      background: linear-gradient(135deg, rgba(129,140,248,0.9), rgba(167,139,250,0.95));
+      color: #0b1329;
+    }
+    .auth-submit:hover {
+      transform: translateY(-1.5px);
+      box-shadow: 0 12px 28px rgba(var(--primary-rgb),0.38);
+    }
+    .auth-switch { text-align: center; font-size: 13px; color: var(--text-muted); margin-top: 16px; }
+    .auth-link { color: var(--primary); font-weight: 700; background: none; border: 0; cursor: pointer; padding: 0; }
+    .auth-link:hover { text-decoration: underline; }
+    .auth-error {
+      border: 1px solid rgba(239,68,68,0.3);
+      background: rgba(239,68,68,0.08);
+      color: #b91c1c; /* High contrast red for WCAG AA in light mode */
+      padding: 12px 14px; border-radius: 10px;
+      font-size: 13px; margin-bottom: 18px;
+      display: flex; align-items: flex-start; gap: 8px; line-height: 1.4;
+    }
+    .dark .auth-error {
+      color: #f87171; /* High contrast red for dark mode */
+    }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: currentColor;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .auth-success {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 40px 20px; text-align: center;
+    }
+    .auth-success-icon {
+      width: 64px; height: 64px;
+      background: rgba(52,211,153,0.15);
+      color: #34d399;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 28px; margin-bottom: 18px;
+      animation: scaleIn 0.4s cubic-bezier(0.175,0.885,0.32,1.275) forwards;
+    }
+    @keyframes scaleIn { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    @keyframes slideUp { from { transform: translateY(14px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
   </style>
 </head>
 <body>
-  <div class="bk-page">
-    <div class="bk-canvas">
-      <section class="bk-hero">
-        <header class="bk-nav">
-          <a class="bk-logo" href="/"><span>B</span><strong>Buykori AdSync</strong></a>
-          <nav aria-label="Main navigation">
-            <a href="#features">Home</a>
-            <a href="#product">Product</a>
-            <a href="#solution">Solution</a>
-            <a href="#pricing">Pricing</a>
-            <a href="#faq">FAQ</a>
-          </nav>
-          <div><button class="bk-auth-link" type="button" data-auth-mode="login">Sign in</button><button class="bk-dark" type="button" data-auth-mode="signup">Sign up</button></div>
-        </header>
 
-        <div class="bk-hero-grid">
-          <div>
-            <p class="bk-eyebrow">New update <span>|</span> Better server events for paid ads</p>
-            <h1>Optimize Your <mark>Ad</mark> Tracking with Real-Time Data</h1>
-            <p class="bk-sub">Monitor server-side event quality in real time, analyze campaign attribution, and send cleaner WooCommerce signals to Meta, TikTok and GA4.</p>
-            <div class="bk-actions"><button class="bk-orange" type="button" data-auth-mode="signup">Get Started -></button><a class="bk-soft" href="#features">How it Works</a></div>
+  <!-- NAVBAR -->
+  <header class="bk-nav">
+    <a href="/" class="bk-logo">
+      <div class="bk-logo-icon">B</div>
+      Buykori <strong>AdSync</strong>
+    </a>
+    <!-- Responsive Header Navigation -->
+    <nav class="bk-links" id="navLinks" aria-label="Main navigation">
+      <a href="#features" onclick="closeMobileMenu()">Home</a>
+      <a href="#product" onclick="closeMobileMenu()">Product</a>
+      <a href="#management" onclick="closeMobileMenu()">Management</a>
+      <a href="#pricing" onclick="closeMobileMenu()">Pricing</a>
+      <a href="#faq" onclick="closeMobileMenu()">FAQ</a>
+      
+      <!-- Mobile Only Auth actions inside the collapsed menu drawer -->
+      <div class="bk-mobile-actions">
+        <button class="bk-auth-link" type="button" data-auth-mode="login" onclick="closeMobileMenu()">Sign in</button>
+        <button class="bk-btn-primary" type="button" data-auth-mode="signup" onclick="closeMobileMenu()">Start Free →</button>
+      </div>
+    </nav>
+    
+    <div class="bk-nav-right">
+      <button class="theme-btn" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle theme">
+        <span class="theme-icon-light">☀️ <span class="theme-btn-text">LIGHT</span></span>
+        <span class="theme-icon-dark">🌙 <span class="theme-btn-text">DARK</span></span>
+      </button>
+      <button class="bk-auth-link" type="button" data-auth-mode="login">Sign in</button>
+      <button class="bk-btn-primary" type="button" data-auth-mode="signup">Start Free →</button>
+      
+      <!-- Hamburger Menu Toggle Button (visible only on mobile) -->
+      <button class="bk-menu-toggle" id="menuToggle" aria-label="Toggle menu" onclick="toggleMobileMenu()">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <div class="bk-hero" id="features">
+    <div>
+      <div class="bk-eyebrow">One dashboard &nbsp;|&nbsp; Tracking, COD control and courier sync</div>
+      <h1>Track Ads. <mark>Manage Orders.</mark> Grow Smarter.</h1>
+      <p class="bk-hero-sub">Send cleaner WooCommerce signals to Meta, TikTok and GA4, then manage COD orders and courier fulfillment from the same connected dashboard.</p>
+      <div class="bk-hero-capabilities" aria-label="Core product capabilities">
+        <span>Server-side tracking</span>
+        <span>COD purchase control</span>
+        <span>Courier order management</span>
+      </div>
+      <div class="bk-actions">
+        <button class="bk-btn-primary" type="button" data-auth-mode="signup">Start Free →</button>
+        <a class="bk-btn-soft" href="#management">Explore Platform</a>
+      </div>
+    </div>
+    <div class="bk-dashboard-wrap">
+      <div class="bk-dashboard" aria-label="Buykori dashboard preview">
+        <div class="bk-window-top"><i></i><i></i><i></i><b></b></div>
+        <div class="bk-window-body">
+          <div class="bk-window-aside">
+            <div class="bk-aside-logo"><span>B</span>Buykori</div>
+            <div class="bk-aside-nav">
+              <p class="active">Dashboard</p>
+              <p>Events</p>
+              <p>Quality</p>
+              <p>Orders</p>
+              <p>Couriers</p>
+              <p>COD Control</p>
+            </div>
           </div>
-          <div class="bk-dashboard" aria-label="Buykori dashboard preview">
-            <div class="bk-window">
-              <div class="bk-window-top"><i></i><i></i><i></i><b></b></div>
-              <div class="bk-window-body">
-                <aside>
-                  <div class="bk-logo"><span>B</span><strong>Buykori</strong></div>
-                  <p class="active">Dashboard</p><p>Events</p><p>Quality</p><p>Reports</p><p>Settings</p>
-                </aside>
-                <main>
-                  <div class="bk-dash-head"><div><small>Overview</small><h3>Campaign dashboard</h3></div><span>Last 24h</span></div>
-                  <div class="bk-metrics"><article><small>Events</small><strong>16,928</strong><em>+12.6%</em></article><article><small>Match Rate</small><strong>92.7%</strong><em>+6.3%</em></article><article><small>Revenue</small><strong>$8.7K</strong><em>+18.1%</em></article></div>
-                  <div class="bk-bars" aria-hidden="true"><span style="height:38%"></span><span style="height:56%"></span><span style="height:42%"></span><span style="height:76%"></span><span style="height:68%"></span><span style="height:92%"></span><span style="height:64%"></span><span style="height:84%"></span><span style="height:58%"></span><span style="height:74%"></span></div>
-                  <div class="bk-mini">
-                    <article><div class="bk-ring">94</div><div><b>Signal Health</b><p>Excellent event quality</p></div></article>
-                    <article><b>Top Events</b><p><span>PageView</span><strong>9,842</strong></p><p><span>ViewContent</span><strong>6,215</strong></p><p><span>Purchase</span><strong>1,010</strong></p></article>
-                  </div>
-                </main>
+          <div class="bk-window-main">
+            <div class="bk-dash-head">
+              <div>
+                <small>OVERVIEW</small>
+                <h3>Campaign dashboard</h3>
               </div>
+              <div class="bk-dash-period">Last 24h</div>
+            </div>
+            <div class="bk-metrics-mini">
+              <div class="bk-metric-card"><small>Events</small><strong>16,928</strong><em>+12.6%</em></div>
+              <div class="bk-metric-card"><small>Match Rate</small><strong>92.7%</strong><em>+6.3%</em></div>
+              <div class="bk-metric-card"><small>Revenue</small><strong>$8.7K</strong><em>+18.1%</em></div>
+            </div>
+            <div class="bk-bars" aria-hidden="true">
+              <span style="height:38%"></span><span style="height:56%"></span>
+              <span style="height:42%"></span><span style="height:76%"></span>
+              <span style="height:68%"></span><span style="height:92%"></span>
+              <span style="height:64%"></span><span style="height:84%"></span>
+              <span style="height:58%"></span><span style="height:74%"></span>
+            </div>
+            <div class="bk-health-row">
+              <div class="bk-ring">94</div>
+              <div class="bk-health-text"><small>Signal Health</small><b>Excellent quality</b></div>
             </div>
           </div>
         </div>
-      </section>
-
-      <section class="bk-intro" id="product"><p>Buykori AdSync is an ads tracking dashboard platform designed to effectively optimize and monitor your advertising campaigns.</p></section>
-
-      <section id="features" class="bk-section">
-        <div class="bk-section-head"><div><p class="bk-kicker">Key features</p><h2>Powerful Ads Management Features</h2></div><div class="bk-tabs"><span>Tracking</span><span>Dashboard</span><span>Ad Spend</span><span>Customisable</span></div></div>
-        <div class="bk-feature-grid">
-          <article><i>01</i><h3>Track Real Engagement</h3><p>Capture PageView, ViewContent, AddToCart, checkout intent and purchases with cleaner attribution.</p><div><strong>+24.8%</strong><div class="bk-spark"><span style="height:30%"></span><span style="height:54%"></span><span style="height:42%"></span><span style="height:80%"></span></div></div></article>
-          <article><i>02</i><h3>Signal Health Doctor</h3><p>Find missing product IDs, weak match quality and platform delivery warnings before campaigns waste budget.</p><div><strong>94/100</strong><div class="bk-spark"><span style="height:64%"></span><span style="height:76%"></span><span style="height:88%"></span><span style="height:70%"></span></div></div></article>
-          <article><i>03</i><h3>Campaign Monitoring</h3><p>See Meta, TikTok and GA4 event delivery status from one lightweight dashboard.</p><div><strong>3x</strong><div class="bk-spark"><span style="height:46%"></span><span style="height:62%"></span><span style="height:72%"></span><span style="height:90%"></span></div></div></article>
-        </div>
-      </section>
-
-      <section id="solution" class="bk-budget">
-        <p class="bk-kicker">Budgeting for ads</p><h2>Manage and Optimize the Advertising Budget for Maximum Results.</h2>
-        <div class="bk-table"><h3>Ad Spend</h3><table><thead><tr><th>Platform</th><th>Campaign Name</th><th>Clicks</th><th>Impressions</th></tr></thead><tbody><tr><td>Meta</td><td>t-shirt_launch_may</td><td>7,148</td><td>92.4K</td></tr><tr><td>TikTok</td><td>summer_offer_cod</td><td>4,502</td><td>61.8K</td></tr><tr><td>GA4</td><td>brand_search_bd</td><td>2,187</td><td>28.9K</td></tr><tr><td>Direct</td><td>retargeting_flow</td><td>1,044</td><td>13.2K</td></tr></tbody></table></div>
-        <div class="bk-budget-notes"><article><span class="dot">A</span><h3>Real-Time Tracking</h3><p>Track ad event delivery as campaigns run and quickly detect missing signals.</p></article><article><span class="dot">B</span><h3>Budget Adjustment</h3><p>Scale spend only when event quality, product IDs and conversion signals look healthy.</p></article><article><span class="dot">C</span><h3>Cost Per Conversion</h3><p>Use clean attribution data to compare Meta, TikTok and Google campaign performance.</p></article></div>
-      </section>
-
-      <section class="bk-integrations">
-        <p class="bk-kicker">Integrations</p><h2>Easy Integration with Your Advertising Platform</h2><p>Connect AdSync with your advertising platforms and tools from one connected workflow.</p>
-        <div class="bk-logo-cloud"><span>Meta CAPI</span><span>TikTok</span><span>GA4</span><span>WooCommerce</span><span>Google Ads</span><span>LinkedIn</span><span>Pinterest</span></div>
-      </section>
-
-      <section class="bk-tools">
-        <p class="bk-kicker">Free tools</p><h2>Helpful tools for better campaign setup.</h2><p>Useful product areas that help visitors understand and improve tracking before they install the plugin.</p>
-        <div class="bk-tools-grid"><article><i>1</i><h3>Tracking Checker</h3><p>Scan a website and show whether Meta, TikTok, GA4 and server events are active.</p></article><article><i>2</i><h3>Event Tester</h3><p>Send test PageView, ViewContent, AddToCart, Checkout and Purchase events.</p></article><article><i>3</i><h3>UTM Builder</h3><p>Create clean campaign links for Facebook, TikTok and Google ads.</p></article><article><i>4</i><h3>Ads Profit Calculator</h3><p>Estimate ROAS, CPA and profit before increasing campaign budget.</p></article><article><i>5</i><h3>Content ID Fix</h3><p>Reduce missing content warnings by checking product IDs and catalog signals.</p></article><article><i>6</i><h3>Deferred Purchase</h3><p>Confirm COD and delayed orders before sending final purchase signals.</p></article></div>
-      </section>
-
-      <section id="pricing" class="bk-pricing">
-        <p class="bk-kicker">Pricing</p><h2>Price is Just a Number, Focus on the Benefits</h2>
-        <div class="bk-plan-grid"><article><h3>Free Plan</h3><strong>$0<span>/month</span></strong><p>For testing one WooCommerce store.</p><button type="button" data-auth-mode="signup">Start for free</button><ul><li>One store setup</li><li>Basic server events</li><li>Campaign URL builder</li></ul></article><article class="featured"><h3>Pro Plan</h3><strong>$19<span>/month</span></strong><p>For growing stores and marketers.</p><button type="button" data-auth-mode="signup">Start 14 Days Trial</button><ul><li>Meta, TikTok and GA4</li><li>Signal Health Doctor</li><li>Deferred Purchase control</li><li>Priority support</li></ul></article><article><h3>Enterprise Plan</h3><strong>Custom</strong><p>For agencies and multi-store teams.</p><button type="button" data-auth-mode="signup">Talk to sales</button><ul><li>Multi-client dashboard</li><li>Custom domains</li><li>Advanced event quality</li></ul></article></div>
-      </section>
-
-      <section class="bk-comparison">
-        <p class="bk-kicker">Why choose us</p><h2>Buykori AdSync vs manual setup.</h2><p>Manual server-side tracking works, but it takes more time to maintain. Buykori packages the common workflow in one product.</p>
-        <div class="bk-comparison-table"><table><thead><tr><th>Area</th><th>Buykori AdSync</th><th>Manual setup</th></tr></thead><tbody><tr><td><strong>Setup</strong></td><td>Plugin, API key and guided platform settings.</td><td>Manual tags, server config and custom debugging.</td></tr><tr><td><strong>Event quality</strong></td><td>Signal doctor, content ID checks and enrichment flow.</td><td>Depends on developer implementation and ongoing review.</td></tr><tr><td><strong>Purchase control</strong></td><td>Deferred purchase and COD confirmation workflow.</td><td>Usually needs custom logic per store.</td></tr><tr><td><strong>Monitoring</strong></td><td>Dashboard, logs, platform status and campaign tools.</td><td>Separate tools and manual platform checks.</td></tr></tbody></table></div>
-      </section>
-
-      <section class="bk-testimonials">
-        <p class="bk-kicker">Customer stories</p><h2>Designed for store owners and media buyers.</h2><p>Use cleaner server-side event data to reduce confusion before scaling ad budget.</p>
-        <div class="bk-testimonial-grid"><article><div class="bk-stars">*****</div><p>"The dashboard makes tracking issues easier to explain before campaigns waste budget."</p><strong>Agency Operator</strong><small>Meta and TikTok ads</small></article><article><div class="bk-stars">*****</div><p>"Deferred purchase tracking is exactly what COD stores need before sending final purchase data."</p><strong>WooCommerce Owner</strong><small>Bangladesh ecommerce</small></article><article><div class="bk-stars">*****</div><p>"Campaign URL Builder plus server events makes source reporting much cleaner across channels."</p><strong>Performance Marketer</strong><small>Multi-platform campaigns</small></article></div>
-      </section>
-
-      <section id="faq" class="bk-faq">
-        <div><p class="bk-kicker">FAQ</p><h2>Got questions about Buykori? We've got answers.</h2><p>Simple answers for campaign tracking, one-page landing pages and event quality.</p></div>
-        <div class="bk-faq-list"><details open><summary>What is Buykori AdSync?</summary><p>A server-side tracking platform that sends cleaner WooCommerce events to Meta CAPI, TikTok Events API and GA4.</p></details><details><summary>Does it support one-page landing pages?</summary><p>Yes. One-page mode can wait for real checkout intent before sending InitiateCheckout.</p></details><details><summary>Can I use only TikTok or only Meta?</summary><p>Yes. Platform toggles can control which destination receives events for each store.</p></details><details><summary>What data improves event match quality?</summary><p>Content IDs, value, currency, click IDs, user agent, IP and hashed customer fields help platforms match events better.</p></details></div>
-      </section>
-
-      <section class="bk-cta"><h2>Ready to Optimize Your Ads and Maximize Your Results?</h2><p>Start using Buykori AdSync today and take control of your ad campaigns with real-time insights.</p><button type="button" data-auth-mode="signup">Get Started for Free -></button></section>
-      <footer class="bk-footer"><a class="bk-logo" href="/"><span>B</span><strong>Buykori AdSync</strong></a><div><span>Meta</span><span>TikTok</span><span>GA4</span></div><a href="#">Privacy Policy</a></footer>
+      </div>
     </div>
   </div>
 
-  <!-- Auth Overlay Background -->
+  <!-- CONNECTED WORKFLOW -->
+  <div class="bk-workflow-strip" id="product" aria-label="Connected Buykori workflow">
+    <div><strong>1</strong><span>Track events</span></div>
+    <i>&rarr;</i>
+    <div><strong>2</strong><span>Review COD orders</span></div>
+    <i>&rarr;</i>
+    <div><strong>3</strong><span>Book courier</span></div>
+    <i>&rarr;</i>
+    <div><strong>4</strong><span>Sync delivery status</span></div>
+    <i>&rarr;</i>
+    <div><strong>5</strong><span>Send verified purchase signals</span></div>
+  </div>
+
+  <!-- MANAGEMENT OVERVIEW -->
+  <section class="bk-management-band" id="management">
+    <div class="bk-management-inner">
+      <div class="bk-management-copy">
+        <div class="bk-kicker">Beyond tracking</div>
+        <h2 class="bk-section-title">Your WooCommerce operations, connected to your ad data.</h2>
+        <p class="bk-section-sub">Buykori AdSync is not only a tracking server. It helps your team manage COD orders, courier bookings and delivery-driven purchase signals from one workflow.</p>
+        <div class="bk-management-tags">
+          <span>Order dashboard</span>
+          <span>Steadfast and Pathao booking</span>
+          <span>Delivery status sync</span>
+          <span>Deferred purchase control</span>
+        </div>
+      </div>
+      <div class="bk-ops-preview" aria-label="Order operations dashboard preview">
+        <div class="bk-ops-top">
+          <div>
+            <small>ORDER OPERATIONS</small>
+            <h3>COD Fulfillment Center</h3>
+          </div>
+          <span class="bk-ops-live">Live sync</span>
+        </div>
+        <div class="bk-ops-metrics">
+          <div><small>New orders</small><strong>148</strong><span>Today</span></div>
+          <div><small>Courier booked</small><strong>112</strong><span>75.7%</span></div>
+          <div><small>COD confirmed</small><strong>86</strong><span>Synced</span></div>
+        </div>
+        <div class="bk-ops-table">
+          <div class="bk-ops-row bk-ops-heading"><span>Order</span><span>Courier</span><span>Status</span></div>
+          <div class="bk-ops-row"><strong>#1482</strong><span>Steadfast</span><em class="booked">Booked</em></div>
+          <div class="bk-ops-row"><strong>#1481</strong><span>Pathao</span><em class="transit">In transit</em></div>
+          <div class="bk-ops-row"><strong>#1480</strong><span>Steadfast</span><em class="delivered">Delivered</em></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <div class="bk-section-wrap">
+    <div class="bk-section-header">
+      <div>
+        <div class="bk-kicker">Key features</div>
+        <h2 class="bk-section-title">Track ads and manage store operations</h2>
+      </div>
+      <div style="display:flex; gap:4px; padding:4px; background:var(--input-bg); border:1px solid var(--input-border); border-radius:99px;">
+        <span style="padding:8px 14px; border-radius:99px; font-size:11px; font-weight:700; color:var(--text-main); background:var(--card-bg); border:1px solid var(--card-border);">Tracking</span>
+        <span style="padding:8px 14px; border-radius:99px; font-size:11px; font-weight:700; color:var(--text-muted);">Dashboard</span>
+        <span style="padding:8px 14px; border-radius:99px; font-size:11px; font-weight:700; color:var(--text-muted);">Orders</span>
+      </div>
+    </div>
+    <div class="bk-feat-grid">
+      <div class="bk-card bk-feat-card">
+        <div class="bk-feat-icon">📊</div>
+        <h3>Track Real Engagement</h3>
+        <p>Capture PageView, ViewContent, AddToCart, checkout intent and purchases with cleaner attribution.</p>
+        <div class="bk-feat-stat">
+          <strong>+24.8%</strong>
+          <div class="bk-sparkline">
+            <span style="height:30%"></span><span style="height:54%"></span><span style="height:42%"></span><span style="height:80%"></span>
+          </div>
+        </div>
+      </div>
+      <div class="bk-card bk-feat-card">
+        <div class="bk-feat-icon">🩺</div>
+        <h3>Signal Health Doctor</h3>
+        <p>Find missing product IDs, weak match quality and platform delivery warnings before campaigns waste budget.</p>
+        <div class="bk-feat-stat">
+          <strong>94/100</strong>
+          <div class="bk-sparkline">
+            <span style="height:64%"></span><span style="height:76%"></span><span style="height:88%"></span><span style="height:70%"></span>
+          </div>
+        </div>
+      </div>
+      <div class="bk-card bk-feat-card">
+        <div class="bk-feat-icon">📡</div>
+        <h3>Campaign Monitoring</h3>
+        <p>See Meta, TikTok and GA4 event delivery status from one lightweight dashboard.</p>
+        <div class="bk-feat-stat">
+          <strong>3x</strong>
+          <div class="bk-sparkline">
+            <span style="height:46%"></span><span style="height:62%"></span><span style="height:72%"></span><span style="height:90%"></span>
+          </div>
+        </div>
+      </div>
+      <div class="bk-card bk-feat-card">
+        <div class="bk-feat-icon">📦</div>
+        <h3>COD Order Management</h3>
+        <p>Review incoming orders, confirm COD workflows and keep fulfillment decisions inside one portal.</p>
+      </div>
+      <div class="bk-card bk-feat-card">
+        <div class="bk-feat-icon">🚚</div>
+        <h3>Courier Booking</h3>
+        <p>Submit consignments to Steadfast or Pathao and follow delivery statuses without switching tools.</p>
+      </div>
+      <div class="bk-card bk-feat-card">
+        <div class="bk-feat-icon">⏱️</div>
+        <h3>Deferred Purchase Control</h3>
+        <p>Send final purchase signals only after COD or delayed orders reach the right confirmation stage.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ORDER LIFECYCLE -->
+  <div class="bk-section-wrap" id="solution">
+    <div class="bk-two-col">
+      <div>
+        <div class="bk-kicker">COD lifecycle</div>
+        <h2 class="bk-section-title">From incoming order to verified purchase signal.</h2>
+        <p class="bk-section-sub">Built for COD-heavy ecommerce workflows: your team can act on fulfillment updates while AdSync keeps conversion reporting aligned with the real order status.</p>
+        <div class="bk-note-list" style="margin-top:32px;">
+          <div class="bk-card bk-note-card">
+            <div class="bk-note-dot">1</div>
+            <div><h4>Review COD Orders</h4><p>See incoming WooCommerce orders and confirm which purchases should enter fulfillment.</p></div>
+          </div>
+          <div class="bk-card bk-note-card">
+            <div class="bk-note-dot">2</div>
+            <div><h4>Book a Courier</h4><p>Send consignments to Steadfast or Pathao from the same connected workflow.</p></div>
+          </div>
+          <div class="bk-card bk-note-card">
+            <div class="bk-note-dot">3</div>
+            <div><h4>Sync Delivery Outcomes</h4><p>Use fulfillment statuses to keep deferred purchase signals closer to completed orders.</p></div>
+          </div>
+        </div>
+      </div>
+      <div class="bk-card bk-table-card">
+        <div class="bk-table-head">Order Lifecycle Overview</div>
+        <div style="overflow-x:auto;">
+          <table class="bk-data-table">
+            <thead>
+              <tr><th>Order</th><th>Courier</th><th>Status</th><th>Signal</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>#1482</td><td>Steadfast</td><td>Booked</td><td>Deferred</td></tr>
+              <tr><td>#1481</td><td>Pathao</td><td>In transit</td><td>Deferred</td></tr>
+              <tr><td>#1480</td><td>Steadfast</td><td>Delivered</td><td>Confirmed</td></tr>
+              <tr><td>#1479</td><td>Pathao</td><td>Returned</td><td>Protected</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INTEGRATIONS -->
+  <div class="bk-section-wrap bk-center">
+    <div class="bk-kicker">Integrations</div>
+    <h2 class="bk-section-title" style="margin:auto;">Connect ads, WooCommerce and courier operations</h2>
+    <p class="bk-section-sub" style="margin:14px auto 0;">Keep supported advertising platforms and fulfillment tools inside one connected workflow.</p>
+    <div class="bk-logo-cloud">
+      <span class="bk-logo-chip">Meta CAPI</span>
+      <span class="bk-logo-chip">TikTok</span>
+      <span class="bk-logo-chip">GA4</span>
+      <span class="bk-logo-chip">WooCommerce</span>
+      <span class="bk-logo-chip">Google Ads</span>
+      <span class="bk-logo-chip">Steadfast</span>
+      <span class="bk-logo-chip">Pathao</span>
+    </div>
+  </div>
+
+  <!-- FREE TOOLS -->
+  <div class="bk-section-wrap">
+    <div class="bk-center" style="margin-bottom:44px;">
+      <div class="bk-kicker">Free tools</div>
+      <h2 class="bk-section-title" style="margin:auto;">Helpful tools for better campaign setup.</h2>
+      <p class="bk-section-sub" style="margin:14px auto 0;">Use the essentials to validate your setup before scaling campaigns.</p>
+    </div>
+    <div class="bk-tools-grid">
+      <div class="bk-card bk-feat-card" style="min-height:140px;">
+        <div class="bk-feat-icon">🔍</div>
+        <h3>Tracking Checker</h3>
+        <p>Scan a website and show whether Meta, TikTok, GA4 and server events are active.</p>
+      </div>
+      <div class="bk-card bk-feat-card" style="min-height:140px;">
+        <div class="bk-feat-icon">⚡</div>
+        <h3>Event Tester</h3>
+        <p>Send test PageView, ViewContent, AddToCart, Checkout and Purchase events.</p>
+      </div>
+      <div class="bk-card bk-feat-card" style="min-height:140px;">
+        <div class="bk-feat-icon">🔗</div>
+        <h3>UTM Builder</h3>
+        <p>Create clean campaign links for Facebook, TikTok and Google ads.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRICING -->
+  <div class="bk-section-wrap bk-center" id="pricing">
+    <div class="bk-kicker">Pricing</div>
+    <h2 class="bk-section-title" style="margin:auto;">Simple pricing for tracking and operations</h2>
+    <div class="bk-plan-grid">
+      <div class="bk-card bk-plan">
+        <h3>Free Plan</h3>
+        <div class="bk-plan-price">$0<span>/month</span></div>
+        <div class="bk-plan-desc">For testing tracking on one WooCommerce store.</div>
+        <button class="bk-plan-btn" type="button" data-auth-mode="signup">Start for free</button>
+        <ul>
+          <li>One store setup</li>
+          <li>Basic server events</li>
+          <li>Campaign URL builder</li>
+          <li>Order management preview</li>
+        </ul>
+      </div>
+      <div class="bk-card bk-plan featured">
+        <h3>Pro Plan</h3>
+        <div class="bk-plan-price">$19<span>/month</span></div>
+        <div class="bk-plan-desc">For growing stores and marketers.</div>
+        <button class="bk-plan-btn" type="button" data-auth-mode="signup">Start 14 Days Trial</button>
+        <ul>
+          <li>Meta, TikTok and GA4</li>
+          <li>Signal Health Doctor</li>
+          <li>Deferred Purchase control</li>
+          <li>Steadfast & Pathao booking</li>
+          <li>COD delivery status sync</li>
+          <li>Priority support</li>
+        </ul>
+      </div>
+      <div class="bk-card bk-plan">
+        <h3>Enterprise Plan</h3>
+        <div class="bk-plan-price" style="font-size:32px;">Custom</div>
+        <div class="bk-plan-desc">For agencies and multi-store teams.</div>
+        <button class="bk-plan-btn" type="button" data-auth-mode="signup">Talk to sales</button>
+        <ul>
+          <li>Multi-client dashboard</li>
+          <li>Custom domains</li>
+          <li>Advanced event quality</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- COMPARISON -->
+  <div class="bk-section-wrap bk-center">
+    <div class="bk-kicker">Why choose us</div>
+    <h2 class="bk-section-title" style="margin:auto;">Buykori AdSync vs manual setup.</h2>
+    <p class="bk-section-sub" style="margin:14px auto 0;">Manual server-side tracking works, but it takes more time to maintain. Buykori packages the common workflow in one product.</p>
+    <div class="bk-card bk-comparison-table" style="text-align:left; overflow:hidden; margin-top:44px;">
+      <div style="overflow-x:auto;">
+        <table class="bk-comp-table">
+          <thead><tr><th>Area</th><th>Buykori AdSync</th><th>Manual setup</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Setup</strong></td><td>Plugin, API key and guided platform settings.</td><td>Manual tags, server config and custom debugging.</td></tr>
+            <tr><td><strong>Event quality</strong></td><td>Signal doctor, content ID checks and enrichment flow.</td><td>Depends on developer implementation and ongoing review.</td></tr>
+            <tr><td><strong>Purchase control</strong></td><td>Deferred purchase and COD confirmation workflow.</td><td>Usually needs custom logic per store.</td></tr>
+            <tr><td><strong>Monitoring</strong></td><td>Dashboard, logs, platform status and campaign tools.</td><td>Separate tools and manual platform checks.</td></tr>
+            <tr><td><strong>Order operations</strong></td><td>COD review, courier booking and delivery status sync in one portal.</td><td>Separate courier panels and manual status checks.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- AUDIENCE -->
+  <div class="bk-section-wrap bk-center">
+    <div class="bk-kicker">Who it is for</div>
+    <h2 class="bk-section-title" style="margin:auto;">Built for teams that need cleaner signals and tighter fulfillment.</h2>
+    <p class="bk-section-sub" style="margin:14px auto 0;">Use one workflow when ad reporting and order operations need to stay connected.</p>
+    <div class="bk-audience-grid">
+      <div class="bk-card bk-audience-card"><strong>WooCommerce Stores</strong><span>Connect storefront events and everyday order handling.</span></div>
+      <div class="bk-card bk-audience-card"><strong>COD Businesses</strong><span>Protect reporting from unverified or returned purchases.</span></div>
+      <div class="bk-card bk-audience-card"><strong>Agencies</strong><span>Monitor multiple client stores with a consistent setup.</span></div>
+      <div class="bk-card bk-audience-card"><strong>Performance Marketers</strong><span>Scale campaigns using cleaner conversion signals.</span></div>
+    </div>
+  </div>
+
+  <!-- FAQ -->
+  <div class="bk-section-wrap" id="faq">
+    <div class="bk-faq-grid">
+      <div>
+        <div class="bk-kicker">FAQ</div>
+        <h2 class="bk-section-title">Got questions about Buykori? We've got answers.</h2>
+        <p class="bk-section-sub">Simple answers for server-side tracking, COD order management and courier fulfillment.</p>
+      </div>
+      <div class="bk-faq-list">
+        <details open>
+          <summary>What is Buykori AdSync?</summary>
+          <p>A connected WooCommerce platform for server-side ad tracking, COD purchase control and courier order management.</p>
+        </details>
+        <details>
+          <summary>Can I manage orders from the dashboard?</summary>
+          <p>Yes. You can review COD orders, submit consignments to supported couriers and follow delivery statuses from the portal.</p>
+        </details>
+        <details>
+          <summary>Which couriers are supported?</summary>
+          <p>The current order workflow supports Steadfast and Pathao booking with delivery status updates.</p>
+        </details>
+        <details>
+          <summary>Does courier status affect purchase tracking?</summary>
+          <p>Yes. Deferred purchase control helps align final purchase signals with the order status used by your COD workflow.</p>
+        </details>
+        <details>
+          <summary>Does it support one-page landing pages?</summary>
+          <p>Yes. One-page mode can wait for real checkout intent before sending InitiateCheckout.</p>
+        </details>
+        <details>
+          <summary>Can I use only TikTok or only Meta?</summary>
+          <p>Yes. Platform toggles can control which destination receives events for each store.</p>
+        </details>
+        <details>
+          <summary>What data improves event match quality?</summary>
+          <p>Content IDs, value, currency, click IDs, user agent, IP and hashed customer fields help platforms match events better.</p>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div class="bk-cta-section">
+    <div class="bk-cta-card">
+      <h2>Ready to connect your ads, orders and delivery workflow?</h2>
+      <p>Start using Buykori AdSync to track cleaner signals and manage WooCommerce order operations from one dashboard.</p>
+      <button class="bk-btn-primary" type="button" data-auth-mode="signup" style="margin-top:30px;">Start Free →</button>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="bk-footer">
+    <a href="/" class="bk-logo">
+      <div class="bk-logo-icon">B</div>
+      Buykori <strong style="color:var(--primary)">AdSync</strong>
+    </a>
+    <div class="bk-footer-links">
+      <a href="#">Meta</a><a href="#">TikTok</a><a href="#">GA4</a>
+      <a href="#">Privacy Policy</a>
+    </div>
+    <span style="font-size:11px; color:var(--text-subtle);">© 2026 Buykori AdSync</span>
+  </footer>
+
+  <!-- AUTH MODAL -->
   <div id="auth-overlay" class="auth-overlay">
-    <!-- Centered Glassmorphic Auth Modal -->
-    <div id="auth-drawer" class="auth-drawer">
-      <div class="drawer-bg-blob drawer-bg-blob-1"></div>
-      <div class="drawer-bg-blob drawer-bg-blob-2"></div>
-      
-      <div class="drawer-container">
-        <button id="drawer-close" class="drawer-close" aria-label="Close panel">&times;</button>
-        
-        <div class="drawer-header">
-          <div class="drawer-logo"><span>B</span><strong>Buykori AdSync</strong></div>
-          <h2 id="drawer-title" class="drawer-title">Welcome Back</h2>
-          <p id="drawer-subtitle" class="drawer-subtitle">Log in to manage your server-side event tracking.</p>
+    <div id="auth-modal" class="auth-modal" style="position:relative;">
+      <button id="modal-close" class="auth-modal-close" aria-label="Close">×</button>
+      <div class="auth-modal-body">
+        <div class="auth-modal-logo"><span>B</span>Buykori AdSync</div>
+        <h2 id="modal-title" class="auth-title">Welcome Back</h2>
+        <p id="modal-sub" class="auth-sub">Log in to manage tracking and order operations.</p>
+
+        <div class="auth-tabs" role="tablist">
+          <button id="tab-login" class="auth-tab active" type="button">Login</button>
+          <button id="tab-signup" class="auth-tab" type="button">Signup</button>
         </div>
 
-        <div class="drawer-tabs" role="tablist">
-          <button id="tab-login" class="drawer-tab active" type="button" role="tab">Login</button>
-          <button id="tab-signup" class="drawer-tab" type="button" role="tab">Signup</button>
+        <div id="auth-alert" class="auth-error" style="display:none;">
+          <span>⚠</span><span id="auth-alert-text">An error occurred.</span>
         </div>
 
-        <!-- Live Notification/Error Alert Box -->
-        <div id="drawer-alert" class="drawer-error-alert" style="display: none;">
-          <span class="drawer-error-icon">&#9888;</span>
-          <span id="drawer-alert-text">An error occurred. Please try again.</span>
+        <!-- Success Screen -->
+        <div id="auth-success" class="auth-success" style="display:none;">
+          <div class="auth-success-icon">✓</div>
+          <h3 style="font-family:'Space Grotesk',sans-serif; font-size:22px; font-weight:700; color:var(--text-main); margin-bottom:8px;">Success!</h3>
+          <p style="color:var(--text-muted); font-size:13px;">Redirecting to your dashboard...</p>
         </div>
 
-        <!-- Login Form Panel -->
-        <form id="drawer-login-form" class="drawer-panel active" autocomplete="on">
-          <div class="drawer-field-group">
-            <div class="drawer-input-container">
-              <label class="drawer-label" for="login-email">Email Address</label>
-              <input class="drawer-input" id="login-email" type="email" name="email" placeholder="name@domain.com" autocomplete="email" required>
-            </div>
-            <div class="drawer-input-container">
-              <label class="drawer-label" for="login-password">Password</label>
-              <input class="drawer-input" id="login-password" type="password" name="password" placeholder="••••••••" autocomplete="current-password" required>
-            </div>
+        <!-- Login Panel -->
+        <form id="panel-login" class="auth-panel active" autocomplete="on">
+          <div class="auth-field">
+            <label class="auth-label" for="login-email">Email Address</label>
+            <input class="auth-input" id="login-email" type="email" placeholder="name@domain.com" autocomplete="email" required>
           </div>
-          <div class="drawer-row">
-            <label class="drawer-checkbox-label">
-              <input type="checkbox" name="remember" checked> Remember me
-            </label>
-            <span style="color: #ff8b45; font-weight: 750;">Secure Portal</span>
+          <div class="auth-field">
+            <label class="auth-label" for="login-password">Password</label>
+            <input class="auth-input" id="login-password" type="password" placeholder="••••••••" autocomplete="current-password" required>
           </div>
-          <button class="drawer-submit" type="submit">
+          <div class="auth-row">
+            <label><input type="checkbox" checked> Remember me</label>
+            <span style="color:var(--primary); font-size:12px; font-weight:700;">Secure Portal</span>
+          </div>
+          <button class="auth-submit" type="submit">
             <span class="btn-text">Login</span>
-            <span class="btn-spinner spinner" style="display: none;"></span>
+            <span class="spinner" style="display:none;"></span>
           </button>
-          <p class="drawer-switch">Don't have an account? <button class="drawer-link" type="button" id="link-to-signup">Signup</button></p>
+          <p class="auth-switch">Don't have an account? <button class="auth-link" type="button" id="link-to-signup">Signup</button></p>
         </form>
 
-        <!-- Signup Form Panel -->
-        <form id="drawer-signup-form" class="drawer-panel" autocomplete="on">
-          <div class="drawer-field-group">
-            <div class="drawer-input-container">
-              <label class="drawer-label" for="signup-fullname">Full Name</label>
-              <input class="drawer-input" id="signup-fullname" type="text" name="full_name" placeholder="John Doe" autocomplete="name" required>
-            </div>
-            <div class="drawer-input-container">
-              <label class="drawer-label" for="signup-bizname">Business Name</label>
-              <input class="drawer-input" id="signup-bizname" type="text" name="business_name" placeholder="Acme Corp" autocomplete="organization" required>
-            </div>
-            <div class="drawer-input-container">
-              <label class="drawer-label" for="signup-email">Email Address</label>
-              <input class="drawer-input" id="signup-email" type="email" name="email" placeholder="name@domain.com" autocomplete="email" required>
-            </div>
-            <div class="drawer-input-container">
-              <label class="drawer-label" for="signup-password">Create Password</label>
-              <input class="drawer-input" id="signup-password" type="password" name="password" placeholder="Min. 8 characters" autocomplete="new-password" minlength="8" required>
-            </div>
-            <div class="drawer-input-container">
-              <label class="drawer-label" for="signup-domain">Website Domain (Optional)</label>
-              <input class="drawer-input" id="signup-domain" type="text" name="domain" placeholder="example.com">
-            </div>
+        <!-- Signup Panel -->
+        <form id="panel-signup" class="auth-panel" autocomplete="on">
+          <div class="auth-field">
+            <label class="auth-label" for="signup-fullname">Full Name</label>
+            <input class="auth-input" id="signup-fullname" type="text" placeholder="John Doe" autocomplete="name" required>
           </div>
-          <button class="drawer-submit" type="submit">
+          <div class="auth-field">
+            <label class="auth-label" for="signup-bizname">Business Name</label>
+            <input class="auth-input" id="signup-bizname" type="text" placeholder="Acme Corp" autocomplete="organization" required>
+          </div>
+          <div class="auth-field">
+            <label class="auth-label" for="signup-email">Email Address</label>
+            <input class="auth-input" id="signup-email" type="email" placeholder="name@domain.com" autocomplete="email" required>
+          </div>
+          <div class="auth-field">
+            <label class="auth-label" for="signup-password">Create Password</label>
+            <input class="auth-input" id="signup-password" type="password" placeholder="Min. 8 characters" autocomplete="new-password" minlength="8" required>
+          </div>
+          <div class="auth-field">
+            <label class="auth-label" for="signup-confirm-password">Confirm Password</label>
+            <input class="auth-input" id="signup-confirm-password" type="password" placeholder="Confirm your password" autocomplete="new-password" minlength="8" required>
+          </div>
+          <div class="auth-field">
+            <label class="auth-label" for="signup-domain">Website Domain (Optional)</label>
+            <input class="auth-input" id="signup-domain" type="text" placeholder="example.com">
+          </div>
+          <button class="auth-submit" type="submit">
             <span class="btn-text">Create Account</span>
-            <span class="btn-spinner spinner" style="display: none;"></span>
+            <span class="spinner" style="display:none;"></span>
           </button>
-          <p class="drawer-switch">Already have an account? <button class="drawer-link" type="button" id="link-to-login">Login</button></p>
+          <p class="auth-switch">Already have an account? <button class="auth-link" type="button" id="link-to-login">Login</button></p>
         </form>
-
-        <!-- Success Screen (Animated) -->
-        <div id="drawer-success-screen" class="drawer-success" style="display: none;">
-          <div class="drawer-success-icon">&#10004;</div>
-          <h2 class="drawer-title" style="font-size: 22px;">Success!</h2>
-          <p class="drawer-subtitle" style="margin-top: 8px;">Synchronizing workspace credentials...</p>
-          <p class="drawer-subtitle" style="font-size: 12px; color: rgba(255, 255, 255, 0.4); margin-top: 6px;">Redirecting you to client dashboard...</p>
-        </div>
-
-        <div class="drawer-footer">Created by Buykori AdSync</div>
       </div>
     </div>
   </div>
 
   <script>
-    // Elements
-    const authOverlay = document.getElementById('auth-overlay');
-    const authDrawer = document.getElementById('auth-drawer');
-    const drawerClose = document.getElementById('drawer-close');
-    const drawerTitle = document.getElementById('drawer-title');
-    const drawerSubtitle = document.getElementById('drawer-subtitle');
+    // Theme Toggle
+    function toggleTheme() {
+      const html = document.documentElement;
+      const isDark = html.classList.toggle('dark');
+      localStorage.setItem('bk_theme', isDark ? 'dark' : 'light');
+    }
+
+    // Mobile Menu Toggle Functions for small screen navigation
+    function toggleMobileMenu() {
+      const toggle = document.getElementById('menuToggle');
+      const links = document.getElementById('navLinks');
+      const isOpen = links.classList.toggle('active');
+      toggle.classList.toggle('active', isOpen);
+      document.body.style.overflow = isOpen ? 'hidden' : '';
+    }
+
+    function closeMobileMenu() {
+      const toggle = document.getElementById('menuToggle');
+      const links = document.getElementById('navLinks');
+      toggle.classList.remove('active');
+      links.classList.remove('active');
+      document.body.style.overflow = '';
+    }
+
+    // Auth Modal
+    const overlay = document.getElementById('auth-overlay');
+    const modal = document.getElementById('auth-modal');
     const tabLogin = document.getElementById('tab-login');
     const tabSignup = document.getElementById('tab-signup');
-    const loginForm = document.getElementById('drawer-login-form');
-    const signupForm = document.getElementById('drawer-signup-form');
-    const successScreen = document.getElementById('drawer-success-screen');
-    const drawerAlert = document.getElementById('drawer-alert');
-    const drawerAlertText = document.getElementById('drawer-alert-text');
+    const panelLogin = document.getElementById('panel-login');
+    const panelSignup = document.getElementById('panel-signup');
+    const modalTitle = document.getElementById('modal-title');
+    const modalSub = document.getElementById('modal-sub');
+    const authAlert = document.getElementById('auth-alert');
+    const authAlertText = document.getElementById('auth-alert-text');
+    const authSuccess = document.getElementById('auth-success');
     const linkToSignup = document.getElementById('link-to-signup');
     const linkToLogin = document.getElementById('link-to-login');
+    const modalClose = document.getElementById('modal-close');
 
-    // Tab Activation Helper
-    function activateTab(tabName) {
-      if (tabName === 'login') {
-        tabLogin.classList.add('active');
-        tabSignup.classList.remove('active');
-        loginForm.classList.add('active');
-        signupForm.classList.remove('active');
-        successScreen.style.display = 'none';
-        drawerTitle.textContent = 'Welcome Back';
-        drawerSubtitle.textContent = 'Log in to manage your server-side event tracking.';
-      } else {
-        tabLogin.classList.remove('active');
-        tabSignup.classList.add('active');
-        loginForm.classList.remove('active');
-        signupForm.classList.add('active');
-        successScreen.style.display = 'none';
-        drawerTitle.textContent = 'Create Store Account';
-        drawerSubtitle.textContent = 'Start tracking WooCommerce server events in minutes.';
-      }
+    function showAlert(msg) { authAlertText.textContent = msg; authAlert.style.display = 'flex'; }
+    function hideAlert() { authAlert.style.display = 'none'; }
+
+    function activateTab(tab) {
+      const isLogin = tab === 'login';
+      tabLogin.classList.toggle('active', isLogin);
+      tabSignup.classList.toggle('active', !isLogin);
+      panelLogin.classList.toggle('active', isLogin);
+      panelSignup.classList.toggle('active', !isLogin);
+      authSuccess.style.display = 'none';
+      modalTitle.textContent = isLogin ? 'Welcome Back' : 'Create Store Account';
+      modalSub.textContent = isLogin ? 'Log in to manage tracking and order operations.' : 'Connect WooCommerce tracking and order workflows in minutes.';
       hideAlert();
     }
 
-    // Toggle Drawer Helper
-    function openDrawer(activeTab = 'login') {
-      // Clear forms
-      loginForm.reset();
-      signupForm.reset();
-      
-      // Clear screens display
-      loginForm.style.display = '';
-      signupForm.style.display = '';
-      document.querySelector('.drawer-tabs').style.display = 'grid';
-      drawerTitle.style.display = 'block';
-      drawerSubtitle.style.display = 'block';
-      successScreen.style.display = 'none';
-      
-      activateTab(activeTab);
-      authOverlay.classList.add('active');
-      authDrawer.classList.add('active');
-      document.body.style.overflow = 'hidden'; // Disable page scrolling
+    function openModal(tab = 'login') {
+      panelLogin.reset(); panelSignup.reset();
+      authSuccess.style.display = 'none';
+      activateTab(tab);
+      overlay.classList.add('active');
+      modal.classList.add('active');
+      document.body.style.overflow = 'hidden';
     }
 
-    function closeDrawer() {
-      authOverlay.classList.remove('active');
-      authDrawer.classList.remove('active');
-      document.body.style.overflow = 'auto'; // Re-enable page scrolling
-      // Clear forms
-      loginForm.reset();
-      signupForm.reset();
+    function closeModal() {
+      overlay.classList.remove('active');
+      modal.classList.remove('active');
+      document.body.style.overflow = '';
+      panelLogin.reset(); panelSignup.reset();
       hideAlert();
     }
 
-    // Alert Helpers
-    function showAlert(message) {
-      drawerAlertText.textContent = message;
-      drawerAlert.style.display = 'flex';
-    }
-
-    function hideAlert() {
-      drawerAlert.style.display = 'none';
-    }
-
-    // Event Listeners for Open/Close
     tabLogin.addEventListener('click', () => activateTab('login'));
     tabSignup.addEventListener('click', () => activateTab('signup'));
-    linkToSignup.addEventListener('click', (e) => { e.preventDefault(); activateTab('signup'); });
-    linkToLogin.addEventListener('click', (e) => { e.preventDefault(); activateTab('login'); });
-    drawerClose.addEventListener('click', closeDrawer);
-    authOverlay.addEventListener('click', closeDrawer);
-    authDrawer.addEventListener('click', (e) => e.stopPropagation());
+    linkToSignup.addEventListener('click', e => { e.preventDefault(); activateTab('signup'); });
+    linkToLogin.addEventListener('click', e => { e.preventDefault(); activateTab('login'); });
+    modalClose.addEventListener('click', closeModal);
+    overlay.addEventListener('click', closeModal);
+    modal.addEventListener('click', e => e.stopPropagation());
 
-    // Open the marketing-site auth drawer instead of sending visitors away first.
     document.addEventListener('click', function(e) {
-      const authTrigger = e.target.closest('[data-auth-mode]');
-      if (authTrigger) {
-        e.preventDefault();
-        openDrawer(authTrigger.getAttribute('data-auth-mode') === 'login' ? 'login' : 'signup');
-        return;
-      }
-
-      const link = e.target.closest('a');
-      if (link && link.getAttribute('href') && link.getAttribute('href').includes('client.buykori.app')) {
-        e.preventDefault();
-        openDrawer('signup');
-      }
+      const trigger = e.target.closest('[data-auth-mode]');
+      if (trigger) { e.preventDefault(); openModal(trigger.dataset.authMode === 'login' ? 'login' : 'signup'); }
     });
 
-    // Form submission helper
-    async function submitAuthForm(form, endpoint, payloadBuilder) {
-      const submitBtn = form.querySelector('.drawer-submit');
-      const btnText = submitBtn.querySelector('.btn-text');
-      const btnSpinner = submitBtn.querySelector('.btn-spinner');
-
-      // Disable interactions and show spinner
-      submitBtn.disabled = true;
-      btnText.style.opacity = '0.5';
-      btnSpinner.style.display = 'inline-block';
+    async function submitForm(form, endpoint, payloadFn) {
+      const btn = form.querySelector('.auth-submit');
+      const text = btn.querySelector('.btn-text');
+      const spinner = btn.querySelector('.spinner');
+      btn.disabled = true; text.style.opacity = '0.5'; spinner.style.display = 'inline-block';
       hideAlert();
-
-      const payload = payloadBuilder();
-
       try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.detail || 'An unexpected authentication error occurred.');
-        }
-
-        // Authentication Success Workflow
-        loginForm.style.display = 'none';
-        signupForm.style.display = 'none';
-        document.querySelector('.drawer-tabs').style.display = 'none';
-        drawerTitle.style.display = 'none';
-        drawerSubtitle.style.display = 'none';
-        successScreen.style.display = 'flex';
-
-        // Wait for visual confirmation and redirect to client dashboard
-        setTimeout(() => {
-          window.location.assign('https://client.buykori.app');
-        }, 1200);
-
-      } catch (error) {
-        showAlert(error.message);
-        submitBtn.disabled = false;
-        btnText.style.opacity = '1';
-        btnSpinner.style.display = 'none';
+        const r = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payloadFn()) });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || 'Authentication error.');
+        panelLogin.style.display = 'none'; panelSignup.style.display = 'none';
+        document.querySelector('.auth-tabs').style.display = 'none';
+        modalTitle.style.display = 'none'; modalSub.style.display = 'none';
+        authSuccess.style.display = 'flex';
+        setTimeout(() => window.location.assign('https://client.buykori.app'), 1200);
+      } catch(err) {
+        showAlert(err.message);
+        btn.disabled = false; text.style.opacity = '1'; spinner.style.display = 'none';
       }
     }
 
-    // Login Form Handler
-    loginForm.addEventListener('submit', function(e) {
+    panelLogin.addEventListener('submit', e => {
       e.preventDefault();
-      submitAuthForm(
-        loginForm,
-        '/api/v1/auth/client/login',
-        () => ({
-          email: loginForm.email.value.trim(),
-          password: loginForm.password.value
-        })
-      );
+      submitForm(panelLogin, '/api/v1/auth/client/login', () => ({
+        email: panelLogin.querySelector('#login-email').value.trim(),
+        password: panelLogin.querySelector('#login-password').value
+      }));
     });
 
-    // Signup Form Handler
-    signupForm.addEventListener('submit', function(e) {
+    panelSignup.addEventListener('submit', e => {
       e.preventDefault();
-      submitAuthForm(
-        signupForm,
-        '/api/v1/auth/client/signup',
-        () => ({
-          full_name: signupForm.full_name.value.trim(),
-          business_name: signupForm.business_name.value.trim(),
-          email: signupForm.email.value.trim(),
-          password: signupForm.password.value,
-          domain: signupForm.domain.value.trim() || null
-        })
-      );
+      const password = document.getElementById('signup-password').value;
+      const confirmPassword = document.getElementById('signup-confirm-password').value;
+      if (password !== confirmPassword) {
+        showAlert("Passwords do not match.");
+        return;
+      }
+      submitForm(panelSignup, '/api/v1/auth/client/signup', () => ({
+        full_name: document.getElementById('signup-fullname').value.trim(),
+        business_name: document.getElementById('signup-bizname').value.trim(),
+        email: document.getElementById('signup-email').value.trim(),
+        password: password,
+        domain: document.getElementById('signup-domain').value.trim() || null
+      }));
     });
   </script>
 </body>

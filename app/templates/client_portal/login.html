@@ -362,7 +362,9 @@
               autocomplete="organization" required>
             <input class="glass-input" type="email" name="email" placeholder="Email address" autocomplete="email"
               required>
-            <input class="glass-input" type="password" name="password" placeholder="Create password"
+            <input class="glass-input" type="password" name="password" id="signup-password" placeholder="Create password"
+              autocomplete="new-password" minlength="8" required>
+            <input class="glass-input" type="password" name="confirm_password" id="signup-confirm-password" placeholder="Confirm password"
               autocomplete="new-password" minlength="8" required>
             <input class="glass-input" type="text" name="domain" placeholder="Website domain optional">
           </div>
@@ -390,6 +392,15 @@
 
     tabs.forEach((tab) => tab.addEventListener('click', () => activateAuthTab(tab.dataset.tab)));
     switches.forEach((button) => button.addEventListener('click', () => activateAuthTab(button.dataset.switch)));
+
+    signupPanel.addEventListener('submit', (e) => {
+      const password = document.getElementById('signup-password').value;
+      const confirmPassword = document.getElementById('signup-confirm-password').value;
+      if (password !== confirmPassword) {
+        e.preventDefault();
+        alert("Passwords do not match.");
+      }
+    });
   </script>
 </body>
 
