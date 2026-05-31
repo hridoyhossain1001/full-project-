@@ -24,7 +24,7 @@ from app.models.pending_event import PendingEvent
 from app.models.usage_counter import UsageCounter
 from app.security import encrypt_token
 from app.services.webhook_service import _webhook_url_allowed
-from app.limiter import limiter
+from app.limiter import limiter, _get_real_ip
 from app.utils.display import normalize_domain_input, display_domain_url, mask_secret
 
 logger = logging.getLogger(__name__)
@@ -102,10 +102,7 @@ templates.env.globals["mask_secret"] = mask_secret
 templates.env.globals["display_domain_url"] = display_domain_url
 
 def request_ip(request: Request) -> str | None:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else None
+    return _get_real_ip(request)
 
 async def log_admin_action(
     db: AsyncSession,

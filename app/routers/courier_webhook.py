@@ -146,10 +146,11 @@ async def process_courier_status_change(
         elif mapped_status in ("returned", "cancelled"):
             # Refund event goes if it was already delivered/purchased, or if we want to log the cancel event.
             # Usually, Facebook expects Refund for already sent Purchases.
-            if courier_order.purchase_event_sent:
+            if courier_order.purchase_event_sent and not courier_order.refund_event_sent:
                 logger.info(f"Order {courier_order.order_id} was returned/cancelled after delivery. Queueing Refund event.")
                 try:
                     await _queue_refund_event(client_snapshot, pending_event, db)
+                    courier_order.refund_event_sent = True
                 except Exception as e:
                     logger.error(f"Failed to queue Refund event for order {courier_order.order_id}: {e}")
 

@@ -240,6 +240,26 @@ async def send_order_to_courier(
             
         weight_to_use = req.item_weight if req.item_weight is not None else 0.5
         qty_to_use = req.item_quantity if req.item_quantity is not None else 1
+
+        # Extract product names from event_data or raw_order_data
+        item_description_to_use = None
+        event_data_dict = pending_event.event_data or {}
+        custom_data_dict = event_data_dict.get("custom_data") or {}
+        contents_list = custom_data_dict.get("contents") or []
+
+        if not contents_list and pending_event.raw_order_data:
+            contents_list = pending_event.raw_order_data.get("products") or pending_event.raw_order_data.get("line_items") or []
+
+        if contents_list and isinstance(contents_list, list):
+            product_descriptions = []
+            for item in contents_list:
+                if isinstance(item, dict):
+                    name = item.get("title") or item.get("name") or item.get("content_name")
+                    qty = item.get("quantity") or item.get("qty") or 1
+                    if name:
+                        product_descriptions.append(f"{name} x{qty}")
+            if product_descriptions:
+                item_description_to_use = ", ".join(product_descriptions)
             
         result = await CourierService.send_to_pathao(
             client_id=client_id,
@@ -253,7 +273,8 @@ async def send_order_to_courier(
             cod_amount=req.cod_amount,
             merchant_order_id=pending_event.order_id,
             item_quantity=qty_to_use,
-            item_weight=weight_to_use
+            item_weight=weight_to_use,
+            item_description=item_description_to_use
         )
         
     else:
@@ -317,9 +338,48 @@ async def get_courier_orders(
     response = []
     for order, raw_order_data in rows:
         # Extract products from raw_order_data if available
-        products = None
+        products_list = []
         if raw_order_data and isinstance(raw_order_data, dict):
-            products = raw_order_data.get("products") or raw_order_data.get("line_items")
+            # 1. line_items or products from raw_order_data (WooCommerce order data)
+            line_items = raw_order_data.get("line_items") or raw_order_data.get("products") or []
+            if isinstance(line_items, list):
+                for item in line_items:
+                    if isinstance(item, dict):
+                        raw_name = item.get("name") or item.get("title") or item.get("product_name") or ""
+                        item_id = str(item.get("product_id") or item.get("id") or "")
+                        display_name = raw_name if raw_name else f"Product #{item_id}" if item_id else "Unknown Product"
+                        products_list.append({
+                            "name": display_name,
+                            "quantity": int(item.get("quantity") or 1),
+                            "price": float(item.get("subtotal") or item.get("price") or 0),
+                        })
+            # 2. If it's a raw event dict, it might have custom_data.contents
+            if not products_list:
+                custom_data = raw_order_data.get("custom_data", {}) or {}
+                contents = custom_data.get("contents", []) or []
+                if isinstance(contents, list):
+                    for item in contents:
+                        if isinstance(item, dict):
+                            raw_name = item.get("title") or item.get("name") or item.get("product_name") or ""
+                            item_id = str(item.get("id") or "")
+                            display_name = raw_name if raw_name else f"Product #{item_id}" if item_id else "Unknown Product"
+                            products_list.append({
+                                "name": display_name,
+                                "quantity": int(item.get("quantity") or item.get("qty") or 1),
+                                "price": float(item.get("item_price") or item.get("price") or 0),
+                            })
+        # If products_list is empty, see if custom_data has num_items
+        if not products_list and raw_order_data and isinstance(raw_order_data, dict):
+            custom_data = raw_order_data.get("custom_data", {}) or {}
+            if custom_data.get("num_items"):
+                products_list.append({
+                    "name": "Product (details not available)",
+                    "quantity": int(custom_data.get("num_items", 1)),
+                    "price": float(custom_data.get("value", 0)),
+                })
+        
+        products = products_list if products_list else None
+
         response.append(CourierOrderResponse(
             id=order.id,
             order_id=order.order_id,

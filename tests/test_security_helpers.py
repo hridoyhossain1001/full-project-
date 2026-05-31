@@ -10,6 +10,9 @@ os.environ.setdefault("ENCRYPTION_KEY", "ZFhnf1szwemka8kBbH9jPTC7oKBRTEv0EqWt1J8
 
 from app.routers.admin import create_admin_csrf_token, mask_secret, verify_admin_csrf_token
 from app.routers.events import _is_domain_allowed, _verify_capi_signature
+from app.main import _is_tracker_path
+from app import limiter as limiter_module
+from starlette.requests import Request
 
 
 def test_admin_csrf_token_round_trip():
@@ -34,6 +37,34 @@ def test_domain_matching_is_exact_or_real_subdomain():
     assert _is_domain_allowed("shop.example.com", "example.com")
     assert not _is_domain_allowed("badexample.com", "example.com")
     assert not _is_domain_allowed("example.com.attacker.test", "example.com")
+
+
+def test_tracker_path_matching_does_not_include_client_routes():
+    assert _is_tracker_path("/c")
+    assert _is_tracker_path("/c/batch")
+    assert _is_tracker_path("/t.js")
+    assert not _is_tracker_path("/client")
+    assert not _is_tracker_path("/custom")
+
+
+def test_proxy_ip_headers_are_ignored_unless_trusted(monkeypatch):
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [(b"x-forwarded-for", b"203.0.113.10")],
+            "client": ("127.0.0.1", 1234),
+            "scheme": "http",
+            "server": ("testserver", 80),
+        }
+    )
+
+    monkeypatch.setattr(limiter_module, "TRUST_PROXY_HEADERS", False)
+    assert limiter_module._get_real_ip(request) == "127.0.0.1"
+
+    monkeypatch.setattr(limiter_module, "TRUST_PROXY_HEADERS", True)
+    assert limiter_module._get_real_ip(request) == "203.0.113.10"
 
 
 def test_capi_signature_contract():

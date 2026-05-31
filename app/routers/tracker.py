@@ -31,6 +31,7 @@ from app.services.geoip_service import get_location_data
 from app.services.event_worker import enqueue_events
 from app.services.tracker_sdk import generate_tracker_js
 from app.services.usage_service import check_and_reserve_usage, check_rate_limit_only
+from app.limiter import _get_real_ip
 
 from sqlalchemy import select
 
@@ -224,8 +225,7 @@ async def collect_event(
     client = await _get_client_by_key(key, db)
 
     # ─── Real IP Detection ────────────────────────────────────────────
-    forwarded = request.headers.get("x-forwarded-for")
-    client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else None)
+    client_ip = _get_real_ip(request)
 
     # ─── Bot Detection ────────────────────────────────────────────────
     user_agent = request.headers.get("user-agent", "")

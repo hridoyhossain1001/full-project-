@@ -156,71 +156,472 @@ function buykorigw_settings_page() {
     $nonce    = wp_create_nonce( 'buykorigw_nonce' );
     ?>
     <style>
-        .buykorigw-wrap { max-width: 860px; margin: 20px 20px 32px 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1d2327; }
-        .buykorigw-header { background: #fff; color: #1d2327; padding: 24px; border: 1px solid #dcdcde; border-left: 4px solid #4f46e5; border-radius: 4px; margin-bottom: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
-        .buykorigw-header h1 { margin: 0 0 6px; font-size: 24px; font-weight: 700; line-height: 1.25; }
-        .buykorigw-header p { margin: 0; color: #50575e; font-size: 14px; }
-        .buykorigw-header .version { background: #eef2ff; color: #3730a3; padding: 3px 9px; border-radius: 999px; font-size: 12px; margin-left: 8px; vertical-align: middle; }
-        /* Tab Navigation */
-        .buykorigw-nav-tabs { display: flex; gap: 0; border-bottom: 2px solid #dcdcde; margin-bottom: 20px; }
-        .buykorigw-nav-tab { padding: 12px 22px; font-size: 14px; font-weight: 600; color: #50575e; cursor: pointer; border: 1px solid transparent; border-bottom: none; border-radius: 4px 4px 0 0; background: transparent; transition: all 0.2s; position: relative; bottom: -2px; }
-        .buykorigw-nav-tab:hover { color: #1d2327; background: #f6f7f7; }
-        .buykorigw-nav-tab.active { color: #4f46e5; background: #fff; border-color: #dcdcde; border-bottom: 2px solid #fff; }
-        .buykorigw-tab-content { display: none; }
-        .buykorigw-tab-content.active { display: block; }
-        /* Cards & Fields */
-        .buykorigw-card { background: #fff; border: 1px solid #dcdcde; border-radius: 4px; padding: 22px; margin-bottom: 18px; box-shadow: 0 1px 2px rgba(0,0,0,0.035); }
-        .buykorigw-card h2 { margin: 0 0 16px; font-size: 17px; color: #1d2327; border-bottom: 1px solid #dcdcde; padding-bottom: 10px; display: block; }
-        .buykorigw-card > p { color: #50575e !important; line-height: 1.55; }
-        .buykorigw-field { margin-bottom: 18px; }
-        .buykorigw-field label { display: block; font-weight: 600; margin-bottom: 6px; color: #1d2327; font-size: 14px; }
+        /* Modern CSS Variables & Base Styles */
+        :root {
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --primary-light: #eef2ff;
+            --slate-50: #f8fafc;
+            --slate-100: #f1f5f9;
+            --slate-200: #e2e8f0;
+            --slate-300: #cbd5e1;
+            --slate-700: #334155;
+            --slate-800: #1e293b;
+            --slate-900: #0f172a;
+            --emerald-50: #ecfdf5;
+            --emerald-100: #d1fae5;
+            --emerald-600: #059669;
+            --emerald-800: #065f46;
+            --red-50: #fef2f2;
+            --red-100: #fee2e2;
+            --red-600: #dc2626;
+            --red-800: #991b1b;
+        }
+
+        .buykorigw-wrap {
+            max-width: 860px;
+            margin: 20px 20px 32px 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: var(--slate-800);
+        }
+
+        /* Sticky Header */
+        .buykorigw-header {
+            position: sticky;
+            top: 32px;
+            z-index: 99;
+            background: #ffffff;
+            padding: 16px 24px;
+            border: 1px solid var(--slate-200);
+            border-left: 4px solid var(--primary);
+            border-radius: 12px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.025);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .buykorigw-header-left h1 {
+            margin: 0 0 4px;
+            font-size: 22px;
+            font-weight: 700;
+            line-height: 1.2;
+            display: flex;
+            align-items: center;
+            color: var(--slate-900);
+        }
+
+        .buykorigw-header-left p {
+            margin: 0;
+            color: #64748b;
+            font-size: 13.5px;
+        }
+
+        .buykorigw-header .version {
+            background: var(--primary-light);
+            color: #3730a3;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            margin-left: 8px;
+            font-weight: 600;
+        }
+
+        /* Navigation Tabs (Shadcn Style) */
+        .buykorigw-nav-container {
+            background: var(--slate-100);
+            padding: 4px;
+            border-radius: 8px;
+            display: inline-flex;
+            gap: 2px;
+            margin-bottom: 24px;
+        }
+
+        .buykorigw-nav-tab {
+            padding: 8px 16px;
+            font-size: 13.5px;
+            font-weight: 600;
+            color: #64748b;
+            cursor: pointer;
+            border-radius: 6px;
+            background: transparent;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .buykorigw-nav-tab:hover {
+            color: var(--slate-900);
+        }
+
+        .buykorigw-nav-tab.active {
+            color: var(--slate-900);
+            background: #ffffff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .buykorigw-tab-content {
+            display: none;
+        }
+
+        .buykorigw-tab-content.active {
+            display: block;
+            animation: buykorigwFadeIn 0.2s ease-out;
+        }
+
+        @keyframes buykorigwFadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Modern Cards */
+        .buykorigw-card {
+            background: #ffffff;
+            border: 1px solid var(--slate-200);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+        }
+
+        .buykorigw-card h2 {
+            margin: 0 0 16px;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--slate-900);
+            border-bottom: 1px solid var(--slate-100);
+            padding-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .buykorigw-card > p {
+            color: #64748b !important;
+            line-height: 1.5;
+            font-size: 13.5px;
+            margin-top: -8px;
+            margin-bottom: 16px;
+        }
+
+        /* Form Fields */
+        .buykorigw-field {
+            margin-bottom: 20px;
+        }
+
+        .buykorigw-field label {
+            display: block;
+            font-weight: 550;
+            margin-bottom: 8px;
+            color: var(--slate-900);
+            font-size: 13.5px;
+        }
+
         .buykorigw-field input[type="text"],
         .buykorigw-field input[type="password"],
-        .buykorigw-field select { width: 100%; max-width: 100%; min-height: 40px; padding: 8px 12px; border: 1px solid #8c8f94; border-radius: 4px; font-size: 14px; transition: border-color 0.15s, box-shadow 0.15s; }
-        .buykorigw-field input:focus, .buykorigw-field select:focus { border-color: #4f46e5; outline: none; box-shadow: 0 0 0 2px rgba(79,70,229,0.18); }
-        .buykorigw-field .description { font-size: 13px; color: #50575e; margin-top: 6px; line-height: 1.45; }
-        .buykorigw-toggle { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid #edf0f2; border-radius: 4px; background: #fbfbfc; }
-        .buykorigw-toggle label { font-weight: 500; color: #1d2327; margin: 0; cursor: pointer; }
-        .buykorigw-switch { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
-        .buykorigw-switch input { opacity: 0; width: 0; height: 0; }
-        .buykorigw-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #a7aaad; border-radius: 24px; transition: 0.2s; }
-        .buykorigw-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.22); }
-        .buykorigw-switch input:checked + .buykorigw-slider { background: #4f46e5; }
-        .buykorigw-switch input:checked + .buykorigw-slider:before { transform: translateX(20px); }
-        .buykorigw-btn { min-height: 40px; padding: 9px 18px; border: 1px solid transparent; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
-        .buykorigw-btn-primary { background: #4f46e5; color: #fff; border-color: #4338ca; }
-        .buykorigw-btn-primary:hover { background: #4338ca; color: #fff; }
-        .buykorigw-btn-test { background: #1d2327; color: #fff; margin-right: 10px; }
-        .buykorigw-btn-test:hover { background: #2c3338; color: #fff; }
-        .buykorigw-btn-secondary { background: #fff; color: #1d2327; border-color: #8c8f94; margin-right: 10px; }
-        .buykorigw-btn-secondary:hover { background: #f6f7f7; color: #1d2327; border-color: #646970; }
-        .buykorigw-status { padding: 12px 14px; border-radius: 4px; margin-top: 12px; display: none; font-size: 13px; line-height: 1.45; }
-        .buykorigw-status.success { display: block; background: #ecfdf3; color: #166534; border: 1px solid #bbf7d0; }
-        .buykorigw-status.error { display: block; background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
-        .buykorigw-events-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-        .buykorigw-info-box { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 4px; padding: 14px 16px; font-size: 13px; color: #3730a3; line-height: 1.55; margin-bottom: 16px; }
+        .buykorigw-field select {
+            width: 100%;
+            max-width: 100%;
+            min-height: 40px;
+            padding: 8px 12px;
+            border: 1px solid var(--slate-300);
+            border-radius: 8px;
+            font-size: 13.5px;
+            color: var(--slate-900);
+            background: #ffffff;
+            transition: all 0.2s ease;
+        }
+
+        .buykorigw-field input:focus, 
+        .buykorigw-field select:focus {
+            border-color: var(--primary);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(79,70,229,0.12);
+        }
+
+        .buykorigw-field .description {
+            font-size: 12.5px;
+            color: #64748b;
+            margin-top: 6px;
+            line-height: 1.4;
+        }
+
+        /* Modern Toggle / Switch Container */
+        .buykorigw-toggle-card {
+            border: 1px solid var(--slate-200);
+            border-radius: 8px;
+            background: var(--slate-50);
+            margin-bottom: 12px;
+            padding: 14px 16px;
+            transition: all 0.15s ease;
+        }
+
+        .buykorigw-toggle-card:hover {
+            background: var(--slate-100);
+            border-color: var(--slate-300);
+        }
+
+        .buykorigw-toggle {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .buykorigw-toggle label {
+            font-weight: 500;
+            color: var(--slate-900);
+            margin: 0;
+            cursor: pointer;
+            font-size: 13.5px;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        /* Toggle Badges */
+        .buykorigw-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 1px 6px;
+            font-size: 10.5px;
+            font-weight: 600;
+            border-radius: 9999px;
+            margin-left: 6px;
+        }
+
+        .buykorigw-badge-recommended {
+            background-color: var(--emerald-50);
+            color: var(--emerald-800);
+            border: 1px solid var(--emerald-100);
+        }
+
+        .buykorigw-badge-optional {
+            background-color: var(--slate-100);
+            color: #475569;
+            border: 1px solid var(--slate-200);
+        }
+
+        /* Custom Switch */
+        .buykorigw-switch {
+            position: relative;
+            width: 40px;
+            height: 22px;
+            flex-shrink: 0;
+        }
+
+        .buykorigw-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .buykorigw-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--slate-300);
+            border-radius: 22px;
+            transition: all 0.2s ease;
+        }
+
+        .buykorigw-slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 3px;
+            bottom: 3px;
+            background: #ffffff;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+
+        .buykorigw-switch input:checked + .buykorigw-slider {
+            background: var(--primary);
+        }
+
+        .buykorigw-switch input:checked + .buykorigw-slider:before {
+            transform: translateX(18px);
+        }
+
+        /* Buttons */
+        .buykorigw-btn {
+            min-height: 38px;
+            padding: 8px 16px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            font-size: 13.5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .buykorigw-btn-primary {
+            background: var(--primary);
+            color: #ffffff;
+            border-color: var(--primary-hover);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        .buykorigw-btn-primary:hover {
+            background: var(--primary-hover);
+            color: #ffffff;
+            box-shadow: 0 2px 4px rgba(79,70,229,0.15);
+        }
+
+        .buykorigw-btn-test {
+            background: var(--slate-900);
+            color: #ffffff;
+            margin-right: 8px;
+        }
+
+        .buykorigw-btn-test:hover {
+            background: var(--slate-800);
+            color: #ffffff;
+        }
+
+        .buykorigw-btn-secondary {
+            background: #ffffff;
+            color: var(--slate-700);
+            border-color: var(--slate-300);
+        }
+
+        .buykorigw-btn-secondary:hover {
+            background: var(--slate-50);
+            color: var(--slate-900);
+            border-color: var(--slate-400);
+        }
+
+        /* Connection Status Badges */
+        .buykorigw-conn-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        .buykorigw-conn-badge.active {
+            background: var(--emerald-50);
+            color: var(--emerald-800);
+            border: 1px solid var(--emerald-100);
+        }
+        .buykorigw-conn-badge.inactive {
+            background: var(--slate-100);
+            color: #64748b;
+            border: 1px solid var(--slate-200);
+        }
+
+        /* Status Messages */
+        .buykorigw-status {
+            padding: 12px 14px;
+            border-radius: 8px;
+            margin-top: 14px;
+            display: none;
+            font-size: 13px;
+            line-height: 1.4;
+            font-weight: 500;
+        }
+
+        .buykorigw-status.success {
+            display: block;
+            background: var(--emerald-50);
+            color: var(--emerald-800);
+            border: 1px solid var(--emerald-100);
+        }
+
+        .buykorigw-status.error {
+            display: block;
+            background: var(--red-50);
+            color: var(--red-800);
+            border: 1px solid var(--red-100);
+        }
+
+        .buykorigw-events-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .buykorigw-info-box {
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            padding: 14px;
+            font-size: 13px;
+            color: #1e3a8a;
+            line-height: 1.5;
+            margin-bottom: 16px;
+        }
+
+        /* Responsive */
         @media (max-width: 782px) {
-            .buykorigw-wrap { margin-right: 12px; }
-            .buykorigw-header, .buykorigw-card { padding: 18px; }
-            .buykorigw-events-grid { grid-template-columns: 1fr; }
-            .buykorigw-btn { width: 100%; margin: 0 0 10px; text-align: center; }
-            .buykorigw-nav-tabs { flex-wrap: wrap; }
-            .buykorigw-nav-tab { flex: 1; text-align: center; font-size: 13px; padding: 10px 12px; }
+            .buykorigw-wrap {
+                margin-right: 12px;
+            }
+            .buykorigw-header {
+                top: 46px;
+                flex-direction: column;
+                gap: 12px;
+                align-items: flex-start;
+                padding: 16px;
+            }
+            .buykorigw-header-right {
+                width: 100%;
+            }
+            .buykorigw-header-right .buykorigw-btn {
+                width: 100%;
+            }
+            .buykorigw-card {
+                padding: 16px;
+            }
+            .buykorigw-events-grid {
+                grid-template-columns: 1fr;
+            }
+            .buykorigw-nav-container {
+                display: flex;
+                width: 100%;
+            }
+            .buykorigw-nav-tab {
+                flex: 1;
+                text-align: center;
+                justify-content: center;
+                font-size: 12.5px;
+                padding: 8px 6px;
+            }
         }
     </style>
 
     <div class="buykorigw-wrap">
-        <!-- Header -->
-        <div class="buykorigw-header">
-            <h1>⚡ Buykori AdSync <span class="version">v<?php echo BUYKORIGW_VERSION; ?></span></h1>
-            <p>Server-Side Facebook CAPI, TikTok & GA4 Tracking for WooCommerce</p>
-        </div>
-
         <form method="post" action="options.php" id="buykorigw-form">
             <?php settings_fields( 'buykorigw_settings_group' ); ?>
 
-            <!-- Tab Navigation -->
-            <div class="buykorigw-nav-tabs">
+            <!-- Header with Sticky Save Button -->
+            <div class="buykorigw-header">
+                <div class="buykorigw-header-left">
+                    <h1>⚡ Buykori AdSync <span class="version">v<?php echo BUYKORIGW_VERSION; ?></span></h1>
+                    <p>Server-Side Facebook CAPI, TikTok & GA4 Tracking for WooCommerce</p>
+                </div>
+                <div class="buykorigw-header-right">
+                    <?php submit_button( '💾 Save Settings', 'buykorigw-btn buykorigw-btn-primary', 'submit', false ); ?>
+                </div>
+            </div>
+
+            <!-- Tab Navigation (Shadcn Style) -->
+            <div class="buykorigw-nav-container">
                 <div class="buykorigw-nav-tab active" data-tab="general">⚙️ General</div>
                 <div class="buykorigw-nav-tab" data-tab="woocommerce">🛒 WooCommerce</div>
                 <div class="buykorigw-nav-tab" data-tab="advanced">🛠️ Advanced</div>
@@ -233,7 +634,14 @@ function buykorigw_settings_page() {
 
                 <!-- Connection Settings -->
                 <div class="buykorigw-card">
-                    <h2>🔑 Connection Settings</h2>
+                    <h2>
+                        🔑 Connection Settings
+                        <?php if ( ! empty( $settings['api_key'] ) ) : ?>
+                            <span class="buykorigw-conn-badge active">● Connected</span>
+                        <?php else : ?>
+                            <span class="buykorigw-conn-badge inactive">● Not Configured</span>
+                        <?php endif; ?>
+                    </h2>
 
                     <div class="buykorigw-field">
                         <label for="buykorigw_api_key">API Key</label>
@@ -245,14 +653,10 @@ function buykorigw_settings_page() {
                         <p class="description">Buykori AdSync ড্যাশবোর্ড থেকে আপনার API Key কপি করুন।</p>
                     </div>
 
-                    <div class="buykorigw-field">
-                        <label for="buykorigw_gateway_url">AdSync API URL</label>
-                        <input type="text" id="buykorigw_gateway_url"
-                               name="<?php echo BUYKORIGW_OPTION_KEY; ?>[gateway_url]"
-                               value="<?php echo esc_attr( $settings['gateway_url'] ); ?>"
-                               placeholder="https://api.buykori.app/api/v1">
-                        <p class="description">সাধারণত এটি পরিবর্তন করার দরকার হয় না।</p>
-                    </div>
+                    <!-- Hidden API URL to keep backend fully functional without cluttering UI -->
+                    <input type="hidden" id="buykorigw_gateway_url"
+                           name="<?php echo BUYKORIGW_OPTION_KEY; ?>[gateway_url]"
+                           value="<?php echo esc_attr( $settings['gateway_url'] ); ?>">
 
                     <button type="button" class="buykorigw-btn buykorigw-btn-test" id="buykorigw-test-btn" onclick="buykorigwTestConnection()">
                         🔍 Test Connection
@@ -263,36 +667,52 @@ function buykorigw_settings_page() {
                 <!-- Core Events -->
                 <div class="buykorigw-card">
                     <h2>📊 Core Events</h2>
-                    <div class="buykorigw-toggle">
-                        <label class="buykorigw-switch">
-                            <input type="checkbox"
-                                   name="<?php echo BUYKORIGW_OPTION_KEY; ?>[low_resource_mode]"
-                                   value="1"
-                                   <?php checked( $settings['low_resource_mode'] ?? 0, 1 ); ?>>
-                            <span class="buykorigw-slider"></span>
-                        </label>
-                        <label>Low-resource mode <span style="color:#888; font-size:12px;">— PageView, ViewContent, Search server-side বন্ধ রাখে</span></label>
+                    <p>সকল ধরনের ওয়েবসাইটের জন্য — ব্লগ, কর্পোরেট সাইট, ল্যান্ডিং পেজ বা ই-কমার্স সবখানে কাজ করবে:</p>
+                    
+                    <div class="buykorigw-toggle-card" style="margin-bottom: 16px; background: #fffcf5; border-color: #fef3c7;">
+                        <div class="buykorigw-toggle">
+                            <label class="buykorigw-switch">
+                                <input type="checkbox"
+                                       name="<?php echo BUYKORIGW_OPTION_KEY; ?>[low_resource_mode]"
+                                       value="1"
+                                       <?php checked( $settings['low_resource_mode'] ?? 0, 1 ); ?>>
+                                <span class="buykorigw-slider"></span>
+                            </label>
+                            <label>
+                                Low-resource mode 
+                                <span style="color:#64748b; font-size:12px; font-weight:normal; margin-left:6px;">— PageView, ViewContent, Search server-side ট্র্যাকিং বন্ধ রাখবে (রিসোর্স সাশ্রয়ী)</span>
+                            </label>
+                        </div>
                     </div>
-                    <p style="color:#666; font-size:13px; margin-bottom:16px;">সকল ধরনের ওয়েবসাইটের জন্য — ব্লগ, কর্পোরেট সাইট, ল্যান্ডিং পেজ, ই-কমার্স সবখানে কাজ করবে:</p>
 
                     <div class="buykorigw-events-grid">
                         <?php
                         $core_events = array(
-                            'enable_pageview' => array( '👁️ PageView', 'প্রতিটি পেজ ভিজিট ট্র্যাক করে' ),
-                            'enable_lead'     => array( '📋 Lead', 'ফর্ম সাবমিশন ও সাইনআপ ট্র্যাক করে' ),
-                            'enable_search'   => array( '🔍 Search', 'সাইটে সার্চ করা ট্র্যাক করে' ),
+                            'enable_pageview' => array( '👁️ PageView', 'প্রতিটি পেজ ভিজিট ট্র্যাক করে', 'recommended' ),
+                            'enable_lead'     => array( '📋 Lead', 'ফর্ম সাবমিশন ও সাইনআপ ট্র্যাক করে', 'optional' ),
+                            'enable_search'   => array( '🔍 Search', 'সাইটে সার্চ করা ট্র্যাক করে', 'optional' ),
                         );
                         foreach ( $core_events as $key => $info ) :
                         ?>
-                            <div class="buykorigw-toggle">
-                                <label class="buykorigw-switch">
-                                    <input type="checkbox"
-                                           name="<?php echo BUYKORIGW_OPTION_KEY; ?>[<?php echo $key; ?>]"
-                                           value="1"
-                                           <?php checked( $settings[ $key ], 1 ); ?>>
-                                    <span class="buykorigw-slider"></span>
-                                </label>
-                                <label><?php echo $info[0]; ?> <span style="color:#888; font-size:12px;">— <?php echo $info[1]; ?></span></label>
+                            <div class="buykorigw-toggle-card">
+                                <div class="buykorigw-toggle">
+                                    <label class="buykorigw-switch">
+                                        <input type="checkbox"
+                                               name="<?php echo BUYKORIGW_OPTION_KEY; ?>[<?php echo $key; ?>]"
+                                               value="1"
+                                               <?php checked( $settings[ $key ], 1 ); ?>>
+                                        <span class="buykorigw-slider"></span>
+                                    </label>
+                                    <label>
+                                        <?php echo $info[0]; ?>
+                                        <span class="buykorigw-badge buykorigw-badge-<?php echo $info[2]; ?>">
+                                            <?php echo ucfirst($info[2]); ?>
+                                        </span>
+                                        <span style="color:#64748b; font-size:11.5px; font-weight:normal; display:block; margin-top:2px;">
+                                            <?php echo $info[1]; ?>
+                                        </span>
+                                    </label>
+                                </div>
                             </div>
                         <?php endforeach; ?>
                     </div>
@@ -301,19 +721,21 @@ function buykorigw_settings_page() {
                 <!-- Hybrid Browser Tracking -->
                 <div class="buykorigw-card">
                     <h2>🌐 Hybrid Browser Tracking (Deduplication)</h2>
-                    <p style="color:#666; font-size:13px; margin-bottom:16px;">
-                        সার্ভার-সাইড (CAPI) ট্র্যাকিংয়ের পাশাপাশি ব্রাউজার-সাইড পিক্সেল সোর্স একসাথে কাজ করবে। এপিআই ডুপ্লিকেশন রুলসের মাধ্যমে Meta ও TikTok স্বয়ংক্রিয়ভাবে অতিরিক্ত ডাটা ফিল্টার করে নিবে।
-                    </p>
-                    <div class="buykorigw-toggle">
-                        <label class="buykorigw-switch">
-                            <input type="checkbox"
-                                   name="<?php echo BUYKORIGW_OPTION_KEY; ?>[enable_hybrid]"
-                                   value="1"
-                                   <?php checked( $settings['enable_hybrid'] ?? 0, 1 ); ?>>
-                            <span class="buykorigw-slider"></span>
-                        </label>
-                        <label>ব্রাউজার ট্র্যাকিং চালু করুন (Hybrid Mode)</label>
+                    <p>সার্ভার-সাইড (CAPI) ট্র্যাকিংয়ের পাশাপাশি ব্রাউজার-সাইড পিক্সেল সোর্স একসাথে কাজ করবে। এপিআই ডুপ্লিকেশন রুলসের মাধ্যমে Meta ও TikTok স্বয়ংক্রিয়ভাবে অতিরিক্ত ডাটা ফিল্টার করে নিবে।</p>
+                    
+                    <div class="buykorigw-toggle-card" style="margin-bottom: 20px;">
+                        <div class="buykorigw-toggle">
+                            <label class="buykorigw-switch">
+                                <input type="checkbox"
+                                       name="<?php echo BUYKORIGW_OPTION_KEY; ?>[enable_hybrid]"
+                                       value="1"
+                                       <?php checked( $settings['enable_hybrid'] ?? 0, 1 ); ?>>
+                                <span class="buykorigw-slider"></span>
+                            </label>
+                            <label>ব্রাউজার ট্র্যাকিং চালু করুন (Hybrid Mode)</label>
+                        </div>
                     </div>
+
                     <div class="buykorigw-field">
                         <label for="buykorigw_fb_pixel_id">Meta (Facebook) Pixel ID</label>
                         <input type="text" id="buykorigw_fb_pixel_id"
@@ -341,38 +763,48 @@ function buykorigw_settings_page() {
                 <!-- WooCommerce Tracking Events -->
                 <div class="buykorigw-card">
                     <h2>🛒 WooCommerce Event Tracking</h2>
-                    <p style="color:#666; font-size:13px; margin-bottom:16px;">ই-কমার্স ওয়েবসাইটের জন্য — WooCommerce ইভেন্টগুলো এখান থেকে চালু/বন্ধ করুন:</p>
+                    <p>ই-কমার্স ওয়েবসাইটের জন্য — WooCommerce ইভেন্টগুলো এখান থেকে চালু বা বন্ধ করুন:</p>
 
                     <div class="buykorigw-events-grid">
                         <?php
                         $woo_events = array(
-                            'enable_viewcontent'    => array( '📦 ViewContent', 'প্রোডাক্ট পেজ ভিউ ট্র্যাক করে' ),
-                            'enable_addtocart'      => array( '🛒 AddToCart', 'কার্টে প্রোডাক্ট যোগ করা ট্র্যাক করে' ),
-                            'enable_viewcart'       => array( '👀 ViewCart', 'কার্ট পেজ ভিজিট ট্র্যাক করে' ),
-                            'enable_removefromcart'  => array( '❌ RemoveFromCart', 'কার্ট থেকে প্রোডাক্ট বাদ দেওয়া ট্র্যাক করে' ),
-                            'enable_checkout'       => array( '💳 InitiateCheckout', 'চেকআউট শুরু করা ট্র্যাক করে' ),
-                            'enable_addpaymentinfo' => array( '🏦 AddPaymentInfo', 'পেমেন্ট ইনফো দেওয়া ট্র্যাক করে' ),
-                            'enable_purchase'       => array( '💰 Purchase', 'অर्डर সম্পন্ন হওয়া ট্র্যাক করে' ),
+                            'enable_viewcontent'    => array( '📦 ViewContent', 'প্রোডাক্ট পেজ ভিউ ট্র্যাক করে', 'recommended' ),
+                            'enable_addtocart'      => array( '🛒 AddToCart', 'কার্টে প্রোডাক্ট যোগ করা ট্র্যাক করে', 'recommended' ),
+                            'enable_viewcart'       => array( '👀 ViewCart', 'কার্ট পেজ ভিজিট ট্র্যাক করে', 'optional' ),
+                            'enable_removefromcart'  => array( '❌ RemoveFromCart', 'কার্ট থেকে প্রোডাক্ট বাদ দেওয়া', 'optional' ),
+                            'enable_checkout'       => array( '💳 InitiateCheckout', 'চেকআউট শুরু করা ট্র্যাক করে', 'recommended' ),
+                            'enable_addpaymentinfo' => array( '🏦 AddPaymentInfo', 'পেমেন্ট ইনফো দেওয়া ট্র্যাক করে', 'optional' ),
+                            'enable_purchase'       => array( '💰 Purchase', 'অর্ডার সম্পন্ন হওয়া ট্র্যাক করে', 'recommended' ),
                         );
                         foreach ( $woo_events as $key => $info ) :
                         ?>
-                            <div class="buykorigw-toggle">
-                                <label class="buykorigw-switch">
-                                    <input type="checkbox"
-                                           name="<?php echo BUYKORIGW_OPTION_KEY; ?>[<?php echo $key; ?>]"
-                                           value="1"
-                                           <?php checked( $settings[ $key ], 1 ); ?>>
-                                    <span class="buykorigw-slider"></span>
-                                </label>
-                                <label><?php echo $info[0]; ?> <span style="color:#888; font-size:12px;">— <?php echo $info[1]; ?></span></label>
+                            <div class="buykorigw-toggle-card">
+                                <div class="buykorigw-toggle">
+                                    <label class="buykorigw-switch">
+                                        <input type="checkbox"
+                                               name="<?php echo BUYKORIGW_OPTION_KEY; ?>[<?php echo $key; ?>]"
+                                               value="1"
+                                               <?php checked( $settings[ $key ], 1 ); ?>>
+                                        <span class="buykorigw-slider"></span>
+                                    </label>
+                                    <label>
+                                        <?php echo $info[0]; ?>
+                                        <span class="buykorigw-badge buykorigw-badge-<?php echo $info[2]; ?>">
+                                            <?php echo ucfirst($info[2]); ?>
+                                        </span>
+                                        <span style="color:#64748b; font-size:11.5px; font-weight:normal; display:block; margin-top:2px;">
+                                            <?php echo $info[1]; ?>
+                                        </span>
+                                    </label>
+                                </div>
                             </div>
                         <?php endforeach; ?>
                     </div>
                 </div>
 
-                <!-- Deferred Purchase (COD) -->
+                <!-- Landing Page Tracking Mode -->
                 <div class="buykorigw-card">
-                    <h2>Landing Page Tracking Mode</h2>
+                    <h2>🎯 Landing Page Tracking Mode</h2>
                     <div class="buykorigw-field">
                         <label for="buykorigw_tracking_mode">Checkout trigger behavior</label>
                         <select id="buykorigw_tracking_mode"
@@ -394,44 +826,45 @@ function buykorigw_settings_page() {
                             <option value="id" <?php selected( $settings['content_id_format'] ?? 'id', 'id' ); ?>>WooCommerce Product Database ID (e.g. 1245)</option>
                             <option value="sku" <?php selected( $settings['content_id_format'] ?? 'id', 'sku' ); ?>>Product SKU Code (e.g. BK-SHOE-44)</option>
                         </select>
-                        <p class="description">সিলেক্ট করুন ফেসবুক এবং টিকটক ক্যাটালগে প্রোডাক্ট সনাক্ত করতে কোন আইডিটি পাঠানো হবে। ক্যাটালগের ইউনিক আইডির সাথে এটি ম্যাচ করতে হবে।</p>
+                        <p class="description">ফেসবুক এবং টিকটক ক্যাটালগে প্রোডাক্ট সনাক্ত করতে কোন আইডিটি পাঠানো হবে তা সিলেক্ট করুন। এটি ক্যাটালগের ইউনিক আইডির সাথে ম্যাচ করতে হবে।</p>
                     </div>
                 </div>
 
                 <!-- Product Variation Tracking -->
                 <div class="buykorigw-card">
                     <h2>📦 Product Variation Tracking</h2>
-                    <p style="color:#666; font-size:13px; margin-bottom:16px;">
-                        প্রোডাক্টের বিভিন্ন ভ্যারিয়েশন (যেমন: সাইজ, কালার) ট্র্যাকিং চালু করুন। এটি চালু করলে AddToCart, ViewContent এবং Purchase ইভেন্টে ভ্যারিয়েশনের আইডি এবং তার এট্রিবিউটসমূহ পাঠানো হবে।
-                    </p>
-                    <div class="buykorigw-toggle">
-                        <label class="buykorigw-switch">
-                            <input type="checkbox"
-                                   name="<?php echo BUYKORIGW_OPTION_KEY; ?>[enable_variations]"
-                                   value="1"
-                                   <?php checked( $settings['enable_variations'] ?? 0, 1 ); ?>>
-                            <span class="buykorigw-slider"></span>
-                        </label>
-                        <label>ভ্যারিয়েশন ট্র্যাকিং চালু করুন (Variation Tracking)</label>
+                    <p>প্রোডাক্টের বিভিন্ন ভ্যারিয়েশন (যেমন: সাইজ, কালার) ট্র্যাকিং চালু করুন। এটি চালু করলে AddToCart, ViewContent এবং Purchase ইভেন্টে ভ্যারিয়েশনের আইডি এবং তার এট্রিবিউটসমূহ পাঠানো হবে।</p>
+                    
+                    <div class="buykorigw-toggle-card">
+                        <div class="buykorigw-toggle">
+                            <label class="buykorigw-switch">
+                                <input type="checkbox"
+                                       name="<?php echo BUYKORIGW_OPTION_KEY; ?>[enable_variations]"
+                                       value="1"
+                                       <?php checked( $settings['enable_variations'] ?? 0, 1 ); ?>>
+                                <span class="buykorigw-slider"></span>
+                            </label>
+                            <label>ভ্যারিয়েশন ট্র্যাকিং চালু করুন (Variation Tracking)</label>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Deferred Purchase (COD) -->
                 <div class="buykorigw-card">
                     <h2>📦 Deferred Purchase (COD Support)</h2>
-                    <p style="color:#666; font-size:13px; margin-bottom:16px;">
-                        ক্যাশ-অন-ডেলিভারি (COD) অর্ডারের জন্য Purchase ইভেন্ট তখনই Facebook-এ পাঠানো হবে যখন অর্ডারের স্ট্যাটাস পরিবর্তন হবে।
-                    </p>
+                    <p>ক্যাশ-অন-ডেলিভারি (COD) অর্ডারের জন্য Purchase ইভেন্ট তখনই Facebook-এ পাঠানো হবে যখন অর্ডারের স্ট্যাটাস পরিবর্তন হবে।</p>
 
-                    <div class="buykorigw-toggle">
-                        <label class="buykorigw-switch">
-                            <input type="checkbox"
-                                   name="<?php echo BUYKORIGW_OPTION_KEY; ?>[deferred_purchase]"
-                                   value="1"
-                                   <?php checked( $settings['deferred_purchase'], 1 ); ?>>
-                            <span class="buykorigw-slider"></span>
-                        </label>
-                        <label>Deferred Purchase চালু করুন</label>
+                    <div class="buykorigw-toggle-card" style="margin-bottom: 20px;">
+                        <div class="buykorigw-toggle">
+                            <label class="buykorigw-switch">
+                                <input type="checkbox"
+                                       name="<?php echo BUYKORIGW_OPTION_KEY; ?>[deferred_purchase]"
+                                       value="1"
+                                       <?php checked( $settings['deferred_purchase'], 1 ); ?>>
+                                <span class="buykorigw-slider"></span>
+                            </label>
+                            <label>Deferred Purchase চালু করুন</label>
+                        </div>
                     </div>
 
                     <div class="buykorigw-field">
@@ -455,15 +888,17 @@ function buykorigw_settings_page() {
 
                 <div class="buykorigw-card">
                     <h2>🛠️ Debug & Logging</h2>
-                    <div class="buykorigw-toggle">
-                        <label class="buykorigw-switch">
-                            <input type="checkbox"
-                                   name="<?php echo BUYKORIGW_OPTION_KEY; ?>[debug_mode]"
-                                   value="1"
-                                   <?php checked( $settings['debug_mode'], 1 ); ?>>
-                            <span class="buykorigw-slider"></span>
-                        </label>
-                        <label>🐛 Debug Mode (error_log-এ লগ লিখবে)</label>
+                    <div class="buykorigw-toggle-card">
+                        <div class="buykorigw-toggle">
+                            <label class="buykorigw-switch">
+                                <input type="checkbox"
+                                       name="<?php echo BUYKORIGW_OPTION_KEY; ?>[debug_mode]"
+                                       value="1"
+                                       <?php checked( $settings['debug_mode'], 1 ); ?>>
+                                <span class="buykorigw-slider"></span>
+                            </label>
+                            <label>🐛 Debug Mode (error_log-এ লগ লিখবে)</label>
+                        </div>
                     </div>
                 </div>
 
@@ -485,11 +920,6 @@ function buykorigw_settings_page() {
                 </div>
 
             </div><!-- /tab-advanced -->
-
-            <!-- Save (visible on all tabs) -->
-            <p>
-                <?php submit_button( '💾 Save Settings', 'buykorigw-btn buykorigw-btn-primary', 'submit', false ); ?>
-            </p>
         </form>
     </div>
 
@@ -541,7 +971,7 @@ function buykorigw_settings_page() {
             if (!apiKey || !gatewayUrl) {
                 status.style.display = 'block';
                 status.className = 'buykorigw-status error';
-                status.textContent = '❌ দয়া করে API Key এবং AdSync API URL দিন।';
+                status.textContent = '❌ দয়া করে API Key দিন।';
                 btn.disabled = false;
                 btn.textContent = '🔍 Test Connection';
                 return;

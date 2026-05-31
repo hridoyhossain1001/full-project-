@@ -222,7 +222,11 @@ PORTAL_ALLOWED_ORIGINS = {
 }
 
 # Tracker endpoints — এগুলোতে credentials পাঠানো হয় না
-TRACKER_PATH_PREFIXES = ("/t.js", "/c", "/pixel")
+TRACKER_PATHS = {"/t.js", "/c", "/pixel"}
+
+
+def _is_tracker_path(path: str) -> bool:
+    return path in TRACKER_PATHS or any(path.startswith(prefix + "/") for prefix in TRACKER_PATHS)
 
 
 class SplitCORSMiddleware:
@@ -247,7 +251,7 @@ class SplitCORSMiddleware:
             await self.app(scope, receive, send)
             return
 
-        is_tracker = any(path.startswith(p) for p in TRACKER_PATH_PREFIXES)
+        is_tracker = _is_tracker_path(path)
 
         if is_tracker:
             # Tracker: যেকোনো HTTPS অরিজিন allow, credentials নেই

@@ -31,6 +31,7 @@ from app.services.usage_service import check_and_reserve_usage
 from app.dependencies import CachedClient, _snapshot
 from app.routers.deferred_events import _auto_book_courier_for_pending, _queue_confirmed_event
 from app.security import decrypt_token
+from app.limiter import _get_real_ip
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -241,9 +242,10 @@ async def shopify_webhook(
 
     # ─── Shopify Signature Validation ───────────────────────────────
     signature = request.headers.get("x-shopify-hmac-sha256", "")
-    if client.shopify_shared_secret:
-        if not signature or not _verify_shopify_signature(raw_body, signature, client.shopify_shared_secret):
-            raise HTTPException(status_code=401, detail="Invalid Shopify webhook signature")
+    if not client.shopify_shared_secret:
+        raise HTTPException(status_code=403, detail="Shopify webhook secret is not configured")
+    if not signature or not _verify_shopify_signature(raw_body, signature, client.shopify_shared_secret):
+        raise HTTPException(status_code=401, detail="Invalid Shopify webhook signature")
 
     # ─── Parse Webhook Body ───────────────────────────────────────────
     try:
@@ -444,16 +446,16 @@ async def shopify_webhook(
     }
 
     # Auto detect Cloudflare / Nginx headers
-    forwarded = request.headers.get("x-forwarded-for")
-    client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else None)
+    client_ip = _get_real_ip(request)
 
     # Enrich
-    boost_event_quality(
+    enriched_event = boost_event_quality(
         EventData(**event_payload),
         cookies={},
         ip_address=client_ip,
         user_agent=request.headers.get("user-agent"),
     )
+    event_payload = enriched_event.model_dump(exclude_none=True)
 
     try:
         reserved_keys = await check_and_reserve_usage(db, client, 1)

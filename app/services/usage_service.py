@@ -138,6 +138,23 @@ async def _atomic_rollback(
     await db.execute(stmt)
 
 
+async def _rollback_redis_counters(client, reserved_keys: dict[str, int]) -> bool:
+    counter_keys = {k: v for k, v in reserved_keys.items() if not k.startswith("_")}
+    r = _get_redis()
+    if r is None or not counter_keys:
+        return False
+    try:
+        pipe = r.pipeline()
+        for window_key, event_count in counter_keys.items():
+            pipe.decrby(f"usage:{client.id}:{window_key}", event_count)
+        await pipe.execute()
+        logger.info(f"[{client.name}] Usage reservation rolled back in Redis: {len(counter_keys)} windows")
+        return True
+    except Exception as exc:
+        logger.warning(f"[{client.name}] Redis usage rollback failed: {exc}")
+        return False
+
+
 async def check_and_reserve_usage(
     db: AsyncSession,
     client,
@@ -213,6 +230,8 @@ async def check_and_reserve_usage(
 
     if new_rate > rate_limit:
         # Undo inside the current transaction; caller owns commit/rollback.
+        if reserved_keys.get("_usage_source") == "redis":
+            await _rollback_redis_counters(client, reserved_keys)
         await _atomic_rollback(db, client.id, minute_key, incoming_event_count)
         await db.flush()
         reserved_keys.pop(minute_key, None)
@@ -229,7 +248,11 @@ async def check_and_reserve_usage(
 
         if new_daily > client.daily_quota:
             # Undo inside the current transaction; caller owns commit/rollback.
+            if reserved_keys.get("_usage_source") == "redis":
+                await _rollback_redis_counters(client, reserved_keys)
             for rk, rc in reserved_keys.items():
+                if rk.startswith("_"):
+                    continue
                 await _atomic_rollback(db, client.id, rk, rc)
             await db.flush()
             raise HTTPException(
@@ -246,7 +269,11 @@ async def check_and_reserve_usage(
 
         if new_monthly > monthly_limit:
             # Undo inside the current transaction; caller owns commit/rollback.
+            if reserved_keys.get("_usage_source") == "redis":
+                await _rollback_redis_counters(client, reserved_keys)
             for rk, rc in reserved_keys.items():
+                if rk.startswith("_"):
+                    continue
                 await _atomic_rollback(db, client.id, rk, rc)
             await db.flush()
             raise HTTPException(
@@ -256,6 +283,8 @@ async def check_and_reserve_usage(
 
     # সব limit pass — commit reservations
     await db.flush()
+    if reserved_keys.get("_usage_source") == "redis":
+        reserved_keys["_usage_db_synced"] = 1
     return reserved_keys
 
 
@@ -287,7 +316,8 @@ async def rollback_usage_reservation(
                     pipe.decrby(f"usage:{client.id}:{window_key}", event_count)
                 await pipe.execute()
                 logger.info(f"[{client.name}] Usage reservation rolled back in Redis: {len(counter_keys)} windows")
-                return
+                if not reserved_keys.get("_usage_db_synced"):
+                    return
             except Exception as exc:
                 logger.warning(f"[{client.name}] Redis usage rollback failed, falling back to DB: {exc}")
         # Redis unavailable — fall through to DB rollback as best-effort

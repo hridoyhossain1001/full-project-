@@ -36,71 +36,86 @@ function buykorigw_dashboard_widget_render()
     <style>
         .cgw-wrap {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #1e293b;
         }
 
         .cgw-stats {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 14px;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
         }
 
         .cgw-stat {
-            background: #f8f9fa;
+            background: #f8fafc;
+            border: 1px solid #f1f5f9;
             border-radius: 8px;
-            padding: 14px;
+            padding: 14px 10px;
             text-align: center;
+            box-shadow: 0 1px 3px 0 rgba(0,0,0,0.05);
+            transition: all 0.2s ease-in-out;
+        }
+
+        .cgw-stat:hover {
+            transform: translateY(-2px);
+            background: #ffffff;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -1px rgba(0,0,0,0.04);
+            border-color: #cbd5e1;
         }
 
         .cgw-stat .num {
-            font-size: 24px;
-            font-weight: 700;
-            color: #1a1a2e;
+            font-size: 20px;
+            font-weight: 800;
+            color: #0f172a;
+            line-height: 1.2;
         }
 
         .cgw-stat .label {
-            font-size: 11px;
-            color: #888;
+            font-size: 10px;
+            color: #64748b;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            margin-top: 2px;
+            margin-top: 6px;
+            font-weight: 600;
         }
 
         .cgw-stat.success .num {
-            color: #2e7d32;
+            color: #059669;
         }
 
         .cgw-stat.warning .num {
-            color: #f57c00;
+            color: #d97706;
         }
 
         .cgw-stat.error .num {
-            color: #c62828;
+            color: #dc2626;
         }
 
         .cgw-stat.info .num {
-            color: #7e57c2;
+            color: #4f46e5;
         }
 
         .cgw-alert {
-            background: #fff8e1;
-            border: 1px solid #ffe08a;
-            border-left: 4px solid #f57c00;
-            color: #7a4b00;
+            background: #fffbeb;
+            border: 1px solid #fef3c7;
+            border-left: 4px solid #d97706;
+            color: #92400e;
             border-radius: 8px;
-            padding: 10px 12px;
+            padding: 12px;
             font-size: 12px;
-            line-height: 1.45;
-            margin-bottom: 14px;
+            line-height: 1.5;
+            margin-bottom: 16px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
         }
 
         .cgw-risk {
-            border: 1px solid #ffd59b;
-            border-left: 4px solid #f57c00;
+            border: 1px solid #fed7aa;
+            border-left: 4px solid #ea580c;
             border-radius: 8px;
-            padding: 12px 14px;
-            margin-bottom: 14px;
-            background: #fffaf2;
+            padding: 14px;
+            margin-bottom: 16px;
+            background: #fff7ed;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
         }
 
         .cgw-risk-head {
@@ -111,15 +126,15 @@ function buykorigw_dashboard_widget_render()
         }
 
         .cgw-risk-title {
-            color: #7a4b00;
-            font-size: 12px;
+            color: #c2410c;
+            font-size: 11px;
             font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.4px;
+            letter-spacing: 0.5px;
         }
 
         .cgw-risk-value {
-            color: #1a1a2e;
+            color: #0f172a;
             font-size: 24px;
             font-weight: 800;
             line-height: 1.1;
@@ -127,10 +142,10 @@ function buykorigw_dashboard_widget_render()
         }
 
         .cgw-risk-meta {
-            color: #6b7280;
+            color: #475569;
             font-size: 12px;
             margin-top: 8px;
-            line-height: 1.45;
+            line-height: 1.5;
         }
 
         .cgw-conn {
@@ -140,17 +155,21 @@ function buykorigw_dashboard_widget_render()
             padding: 10px 14px;
             border-radius: 8px;
             font-size: 13px;
-            margin-bottom: 14px;
+            margin-bottom: 16px;
+            font-weight: 600;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
         }
 
         .cgw-conn.online {
-            background: #e8f5e9;
-            color: #2e7d32;
+            background: #ecfdf5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
         }
 
         .cgw-conn.offline {
-            background: #ffebee;
-            color: #c62828;
+            background: #fef2f2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
         }
 
         .cgw-conn .dot {
@@ -160,35 +179,39 @@ function buykorigw_dashboard_widget_render()
         }
 
         .cgw-conn.online .dot {
-            background: #2e7d32;
+            background: #059669;
             animation: cgwPulse 2s infinite;
         }
 
         .cgw-conn.offline .dot {
-            background: #c62828;
+            background: #dc2626;
         }
 
         @keyframes cgwPulse {
-
-            0%,
-            100% {
+            0%, 100% {
                 opacity: 1;
+                transform: scale(1);
             }
-
             50% {
                 opacity: 0.4;
+                transform: scale(1.2);
             }
         }
 
         .cgw-events {
-            margin-top: 12px;
+            margin-top: 14px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 14px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
         }
 
         .cgw-event-row {
             display: flex;
             justify-content: space-between;
-            padding: 6px 0;
-            border-bottom: 1px solid #f0f0f0;
+            padding: 8px 0;
+            border-bottom: 1px solid #f1f5f9;
             font-size: 13px;
         }
 
@@ -197,41 +220,79 @@ function buykorigw_dashboard_widget_render()
         }
 
         .cgw-event-name {
-            color: #333;
+            color: #334155;
             font-weight: 500;
         }
 
         .cgw-event-count {
-            color: #7e57c2;
-            font-weight: 600;
+            color: #4f46e5;
+            font-weight: 700;
+            background: #eef2ff;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 11px;
         }
 
         .cgw-loading {
             text-align: center;
-            padding: 20px;
-            color: #999;
+            padding: 32px 16px;
+            color: #64748b;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            font-weight: 500;
+        }
+
+        .cgw-spinner {
+            width: 28px;
+            height: 28px;
+            border: 3px solid #e2e8f0;
+            border-top: 3px solid #4f46e5;
+            border-radius: 50%;
+            animation: cgwSpin 0.8s linear infinite;
+        }
+
+        @keyframes cgwSpin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
 
         .cgw-footer {
-            margin-top: 14px;
+            margin-top: 16px;
             text-align: center;
         }
 
         .cgw-footer a {
-            color: #7e57c2;
+            color: #4f46e5;
             text-decoration: none;
             font-size: 13px;
             font-weight: 600;
+            transition: color 0.15s ease-in-out;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
         }
 
         .cgw-footer a:hover {
+            color: #4338ca;
             text-decoration: underline;
+        }
+
+        @media (max-width: 480px) {
+            .cgw-stats {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 
     <div class="cgw-wrap">
         <div id="cgw-content">
-            <div class="cgw-loading">⏳ Loading tracking data...</div>
+            <div class="cgw-loading">
+                <div class="cgw-spinner"></div>
+                <span>⏳ Loading tracking data...</span>
+            </div>
         </div>
         <div class="cgw-footer">
             <a href="<?php echo admin_url('admin.php?page=buykori-adsync'); ?>">⚙️ Plugin Settings</a>
@@ -263,7 +324,7 @@ function buykorigw_dashboard_widget_render()
                 .then(function (r) { return r.json(); })
                 .then(function (resp) {
                     if (!resp.success) {
-                        document.getElementById('cgw-content').innerHTML = '<div class="cgw-loading" style="color:#c62828;">❌ ' + (resp.data || 'Error loading data') + '</div>';
+                        document.getElementById('cgw-content').innerHTML = '<div class="cgw-loading" style="color:#dc2626;">❌ ' + cgwEscape(resp.data || 'Error loading data') + '</div>';
                         return;
                     }
                     var d = resp.data;
@@ -280,7 +341,7 @@ function buykorigw_dashboard_widget_render()
                         html += '<div class="cgw-risk-head">';
                         html += '<div><div class="cgw-risk-title">Pending revenue at risk</div>';
                         html += '<div class="cgw-risk-value">' + cgwMoney(d.pending_value) + '</div></div>';
-                        html += '<div style="text-align:right;color:#f57c00;font-weight:700;">' + cgwNumber(d.pending_orders) + ' COD</div>';
+                        html += '<div style="text-align:right;color:#ea580c;font-weight:700;">' + cgwNumber(d.pending_orders) + ' COD</div>';
                         html += '</div>';
                         html += '<div class="cgw-risk-meta">These orders are held until verification, so fake or cancelled COD orders do not train Meta/TikTok.';
                         if (cgwNumber(d.pending_oldest_age_hours) > 0) {
@@ -296,7 +357,7 @@ function buykorigw_dashboard_widget_render()
                     html += '<div class="cgw-stat warning"><div class="num">' + cgwNumber(d.pending_orders) + '</div><div class="label">Pending COD</div></div>';
                     html += '<div class="cgw-stat success"><div class="num">' + cgwNumber(d.verified_purchases) + '</div><div class="label">Verified Purchases</div></div>';
                     html += '<div class="cgw-stat error"><div class="num">' + cgwNumber(d.cancelled_or_expired) + '</div><div class="label">Cancelled / Expired</div></div>';
-                    html += '<div class="cgw-stat warning"><div class="num" style="font-size:20px;">' + cgwMoney(d.pending_value) + '</div><div class="label">Revenue At Risk</div></div>';
+                    html += '<div class="cgw-stat warning"><div class="num" style="font-size:16px;">' + cgwMoney(d.pending_value) + '</div><div class="label">Revenue At Risk</div></div>';
                     html += '<div class="cgw-stat"><div class="num">' + cgwNumber(d.total_month) + '</div><div class="label">This Month</div></div>';
                     html += '</div>';
 
@@ -306,7 +367,7 @@ function buykorigw_dashboard_widget_render()
 
                     // Top events
                     if (d.top_events && d.top_events.length > 0) {
-                        html += '<div class="cgw-events"><strong style="font-size:12px;color:#888;text-transform:uppercase;">Top Events (Today)</strong>';
+                        html += '<div class="cgw-events"><strong style="font-size:12px;color:#64748b;text-transform:uppercase;">Top Events (Today)</strong>';
                         d.top_events.forEach(function (ev) {
                             html += '<div class="cgw-event-row"><span class="cgw-event-name">' + cgwEscape(ev.name) + '</span><span class="cgw-event-count">' + cgwNumber(ev.count) + '</span></div>';
                         });
@@ -316,7 +377,7 @@ function buykorigw_dashboard_widget_render()
                     document.getElementById('cgw-content').innerHTML = html;
                 })
                 .catch(function (err) {
-                    document.getElementById('cgw-content').innerHTML = '<div class="cgw-loading" style="color:#c62828;">❌ Network error</div>';
+                    document.getElementById('cgw-content').innerHTML = '<div class="cgw-loading" style="color:#dc2626;">❌ Network error</div>';
                 });
         })();
     </script>

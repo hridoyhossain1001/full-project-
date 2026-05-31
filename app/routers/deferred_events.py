@@ -263,6 +263,26 @@ async def _auto_book_courier_for_pending(
                 pathao_client_secret, password = decrypt_token(client_obj.pathao_secret_key).split("|", 1)
             except ValueError:
                 return {"mode": "failed", "message": "Pathao credentials format is invalid."}
+            # Extract product names from event_data or raw_order_data
+            item_description_to_use = None
+            event_data_dict = pending.event_data or {}
+            custom_data_dict = event_data_dict.get("custom_data") or {}
+            contents_list = custom_data_dict.get("contents") or []
+
+            if not contents_list and pending.raw_order_data:
+                contents_list = pending.raw_order_data.get("products") or pending.raw_order_data.get("line_items") or []
+
+            if contents_list and isinstance(contents_list, list):
+                product_descriptions = []
+                for item in contents_list:
+                    if isinstance(item, dict):
+                        name = item.get("title") or item.get("name") or item.get("content_name")
+                        qty = item.get("quantity") or item.get("qty") or 1
+                        if name:
+                            product_descriptions.append(f"{name} x{qty}")
+                if product_descriptions:
+                    item_description_to_use = ", ".join(product_descriptions)
+
             result = await CourierService.send_to_pathao(
                 client_id=pathao_client_id,
                 client_secret=pathao_client_secret,
@@ -274,6 +294,7 @@ async def _auto_book_courier_for_pending(
                 recipient_address=str(raw.get("recipient_address") or "").strip(),
                 cod_amount=cod_amount,
                 merchant_order_id=pending.order_id,
+                item_description=item_description_to_use
             )
         else:
             return {"mode": "failed", "message": f"Unsupported courier provider: {provider}"}
@@ -331,14 +352,14 @@ async def confirm_event(
             detail="Deferred purchase feature is not enabled for this client.",
         )
 
-    # First, fetch the pending event WITHOUT locking to avoid connection locking during external API call
+    # Lock before external booking so concurrent confirms cannot create duplicate consignments.
     result = await db.execute(
         select(PendingEvent).where(
             and_(
                 PendingEvent.client_id == client.id,
                 PendingEvent.order_id == payload.order_id,
             )
-        )
+        ).with_for_update()
     )
     pending = result.scalar_one_or_none()
 
@@ -377,7 +398,7 @@ async def confirm_event(
             detail=f"Cannot confirm order due to invalid status: {pending.status}",
         )
 
-    # Proceed with external courier booking BEFORE holding row lock
+    # The pending row is already locked for the booking attempt.
     booking = await _auto_book_courier_for_pending(client.id, pending, db)
 
     # Now hold the row lock and verify the status is still 'pending' to prevent split-brain transaction commits
@@ -464,7 +485,7 @@ async def bulk_confirm_events(
     if len(payload.order_ids) > 100:
         raise HTTPException(status_code=400, detail="একবারে সর্বোচ্চ ১০০টি অর্ডার কনফার্ম করা যায়।")
 
-    # Fetch all pending events (initially without row locks to prevent blocking during network IO)
+    # Lock before external booking so overlapping bulk/single confirms serialize per order.
     result = await db.execute(
         select(PendingEvent).where(
             and_(
@@ -472,7 +493,7 @@ async def bulk_confirm_events(
                 PendingEvent.order_id.in_(payload.order_ids),
                 PendingEvent.status == "pending",
             )
-        )
+        ).with_for_update()
     )
     pending_events = result.scalars().all()
 
@@ -562,6 +583,26 @@ async def bulk_confirm_events(
                 event_actions[oid] = {"action": "fail", "error": "Pathao credentials format is invalid."}
                 continue
 
+            # Extract product names from event_data or raw_order_data
+            item_description_to_use = None
+            event_data_dict = pending.event_data or {}
+            custom_data_dict = event_data_dict.get("custom_data") or {}
+            contents_list = custom_data_dict.get("contents") or []
+
+            if not contents_list and pending.raw_order_data:
+                contents_list = pending.raw_order_data.get("products") or pending.raw_order_data.get("line_items") or []
+
+            if contents_list and isinstance(contents_list, list):
+                product_descriptions = []
+                for item in contents_list:
+                    if isinstance(item, dict):
+                        name = item.get("title") or item.get("name") or item.get("content_name")
+                        qty = item.get("quantity") or item.get("qty") or 1
+                        if name:
+                            product_descriptions.append(f"{name} x{qty}")
+                if product_descriptions:
+                    item_description_to_use = ", ".join(product_descriptions)
+
             task = CourierService.send_to_pathao(
                 client_id=pathao_client_id,
                 client_secret=pathao_client_secret,
@@ -573,12 +614,13 @@ async def bulk_confirm_events(
                 recipient_address=recipient_address,
                 cod_amount=cod_amount,
                 merchant_order_id=oid,
+                item_description=item_description_to_use
             )
             tasks_to_run.append((oid, task))
         else:
             event_actions[oid] = {"action": "fail", "error": f"Unsupported courier provider: {default_provider}"}
 
-    # Run API calls in parallel (completely outside database-level transactional locks!)
+    # Run provider calls in parallel while the matching pending rows remain locked.
     if tasks_to_run:
         order_ids_for_tasks = [item[0] for item in tasks_to_run]
         tasks = [item[1] for item in tasks_to_run]

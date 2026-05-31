@@ -26,6 +26,7 @@ class CourierOrder(Base):
     delivery_charge = Column(Float, default=0.0)
     status_history = Column(JSON, nullable=True)                         # Historical status changes (JSON list)
     purchase_event_sent = Column(Boolean, default=False, nullable=False) # True if Facebook CAPI Purchase event is sent
+    refund_event_sent = Column(Boolean, default=False, nullable=False)   # True if Facebook CAPI Refund event is sent
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

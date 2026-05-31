@@ -74,6 +74,18 @@ def _verify_capi_signature(
     return hmac.compare_digest(expected, signature)
 
 
+REQUIRE_SIGNED_DOMAIN_PROOF = os.getenv("REQUIRE_SIGNED_DOMAIN_PROOF", "true").lower() in ("1", "true", "yes")
+TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "false").lower() in ("1", "true", "yes")
+
+
+def _request_client_ip(request: Request) -> str | None:
+    if TRUST_PROXY_HEADERS:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
 def _strip_internal_custom_data(event_dict: dict) -> dict:
     """Remove fraud-only fields before storing or queueing ad-platform payloads."""
     event_dict.pop("raw_order_data", None)
@@ -197,6 +209,13 @@ async def receive_events(
                     request.headers.get("x-capi-signature", ""),
                 )
 
+        if REQUIRE_SIGNED_DOMAIN_PROOF and not signed_declared_origin_ok:
+            logger.warning(f"[{client.name}] Signed domain proof missing or invalid for locked domains: {client.domain}")
+            raise HTTPException(
+                status_code=403,
+                detail="Signed domain proof required. Send X-CAPI-Origin, X-CAPI-Timestamp, and X-CAPI-Signature.",
+            )
+
         if not (origin_host or referer_host or signed_declared_origin_ok):
             logger.warning(f"[{client.name}] Domain header missing for locked domains: {client.domain}")
             raise HTTPException(
@@ -226,11 +245,7 @@ async def receive_events(
             )
 
     # ─── Real IP Detection (Cloudflare/Nginx X-Forwarded-For হেডার থেকে) ──
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        client_ip = forwarded.split(",")[0].strip()
-    else:
-        client_ip = request.client.host if request.client else None
+    client_ip = _request_client_ip(request)
 
     # ─── Auto-inject real IP & User-Agent into user_data ─────────────────
     # ফ্রন্টএন্ড থেকে placeholder IP (8.8.8.8) বা কোনো IP না আসলে
